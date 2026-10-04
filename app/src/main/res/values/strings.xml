@@ -1,27 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Textes par défaut (anglais), utilisés pour toute langue sans traduction dédiée -->
 <resources>
-    <string name="app_name">Nextcloud Dream</string>
-    <string name="dream_label">Photos Nextcloud</string>
+    <string name="app_name" translatable="false">Nextcloud Dream</string>
+    <string name="dream_label">Nextcloud Photos</string>
 
-    <string name="dream_loading">Récupération des photos depuis Nextcloud…</string>
-    <string name="dream_no_photos">Aucune photo disponible — serveur Nextcloud injoignable ou dossier vide</string>
-    <string name="dream_not_configured">Économiseur non configuré — ouvrez l\'application Nextcloud Dream</string>
+    <string name="dream_loading">Fetching photos from Nextcloud…</string>
+    <string name="dream_no_photos">No photos available — Nextcloud server unreachable or folder empty</string>
+    <string name="dream_not_configured">Screensaver not configured — open the Nextcloud Dream app</string>
 
-    <string name="config_server_url">URL du serveur Nextcloud</string>
-    <string name="config_username">Identifiant</string>
-    <string name="config_app_password">Mot de passe d\'application (pas le mot de passe principal)</string>
-    <string name="config_folder">Dossier de photos</string>
-    <string name="config_slide_interval">Durée d\'affichage d\'une photo (secondes)</string>
-    <string name="config_sync_interval">Rafraîchissement du cache (heures)</string>
-    <string name="config_max_cache">Cache de secours hors connexion (Mo, ~400 Ko par photo)</string>
-    <string name="config_show_clock">Afficher la date et l\'heure</string>
-    <string name="config_show_photo_info">Afficher la date et le lieu de la photo</string>
-    <string name="config_save">Enregistrer et synchroniser</string>
-    <string name="config_test">Tester la connexion</string>
-    <string name="config_incomplete">Renseignez l\'URL, l\'identifiant et le mot de passe d\'application.</string>
-    <string name="config_syncing">Synchronisation en cours…</string>
-    <string name="config_sync_done">Synchronisation terminée : %1$d photo(s) dans le dossier.</string>
-    <string name="config_testing">Connexion au serveur…</string>
-    <string name="config_test_ok">Connexion réussie : %1$d photo(s) trouvée(s).</string>
-    <string name="config_error">Erreur : %1$s</string>
+    <string name="config_server_url">Nextcloud server URL</string>
+    <string name="config_server_url_hint">https://cloud.example.com</string>
+    <string name="config_username">Username</string>
+    <string name="config_app_password">App password (not your main password)</string>
+    <string name="config_folder">Photo folder</string>
+    <string name="config_folder_hint" translatable="false">/Photos/ScreenSaver</string>
+    <string name="config_slide_interval">Time each photo is shown (seconds)</string>
+    <string name="config_sync_interval">Refresh interval (hours)</string>
+    <string name="config_max_cache">Offline fallback cache (MB, ~400 KB per photo)</string>
+    <string name="config_show_clock">Show the time and date</string>
+    <string name="config_show_photo_info">Show where and when the photo was taken</string>
+    <string name="config_save">Save and sync</string>
+    <string name="config_test">Test connection</string>
+    <string name="config_incomplete">Please enter the URL, the username and the app password.</string>
+    <string name="config_syncing">Syncing…</string>
+    <plurals name="config_sync_done">
+        <item quantity="one">Sync complete: %1$d photo in the folder.</item>
+        <item quantity="other">Sync complete: %1$d photos in the folder.</item>
+    </plurals>
+    <string name="config_testing">Connecting to the server…</string>
+    <plurals name="config_test_ok">
+        <item quantity="one">Connection successful: %1$d photo found.</item>
+        <item quantity="other">Connection successful: %1$d photos found.</item>
+    </plurals>
+
+    <string name="error_auth">Authentication failed: check the username and the app password.</string>
+    <string name="error_folder_not_found">Folder not found: check the path (it is relative to your Nextcloud files).</string>
+    <string name="error_http">The server returned an error (HTTP %1$d).</string>
+    <string name="error_server_unreachable">Server unreachable: check the URL and the network connection.</string>
+    <string name="error_certificate">Secure connection failed: the server certificate is not valid.</string>
+    <string name="error_invalid_url">Invalid URL: it must start with https://</string>
+    <string name="error_generic">Error: %1$s</string>
 </resources>

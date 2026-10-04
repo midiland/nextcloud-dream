@@ -15,7 +15,7 @@ A screensaver for **Android TV** that shows a slideshow of the photos in a folde
 
 Tested on a Mi Box S (Android 9) and an Android TV emulator (Android 12). Requires **Android 9** or later.
 
-> The app's user interface is in French. Button and field names below are given in French, with an English translation.
+> The app is available in **English** and **French**, following the device language (English for any other language).
 
 ---
 
@@ -55,7 +55,7 @@ Supported formats: JPG, JPEG, PNG, HEIC/HEIF, WebP.
 
 > The server must be reachable over **HTTPS with a valid certificate**. Plain HTTP and self-signed certificates are not supported yet.
 >
-> If the folder is **shared** with the account used on the TV box, it often appears at a different path for that account (at the root by default). The "Tester la connexion" (Test connection) button lets you check.
+> If the folder is **shared** with the account used on the TV box, it often appears at a different path for that account (at the root by default). The **Test connection** button lets you check.
 
 ## 2. Build
 
@@ -102,8 +102,8 @@ adb install -r app/build/outputs/apk/release/app-release.apk
    - app password
    - folder
    - display time, refresh interval, fallback cache size, clock, date and location
-3. Click **Tester la connexion** (Test connection): the number of photos found should be displayed.
-4. Click **Enregistrer et synchroniser** (Save and sync).
+3. Click **Test connection**: the number of photos found should be displayed.
+4. Click **Save and sync**.
 
 ## 5. Enable the screensaver
 
@@ -299,8 +299,8 @@ Press any key on the remote to exit the screensaver.
 |---|---|
 | `Requested internal only, but not enough space` when installing | Storage is almost full. Android refuses any install below ~5% free space. Free up some space. |
 | Logs: "Stockage de l'appareil presque plein, téléchargements interrompus" (storage almost full, downloads stopped) | Same cause: usable space (excluding Android's reserve) is below 30 MB. |
-| "Économiseur non configuré" (screensaver not configured) | Open the app and save the configuration. |
-| "Aucune photo disponible" (no photo available) | Server unreachable and fallback cache empty, or the folder is empty. Use "Tester la connexion". The app retries every 5 minutes. |
+| "Screensaver not configured" | Open the app and save the configuration. |
+| "No photos available" | Server unreachable and fallback cache empty, or the folder is empty. Use **Test connection**. The app retries every 5 minutes. |
 | Error 401 | Wrong username or app password. |
 | Error 404 | Wrong folder path. It is relative to the account's root; a shared folder may have a different path. |
 | No place name under the date | The photo has no GPS coordinates (camera without GPS), or the geocoder was unreachable: it retries at the next sync. |

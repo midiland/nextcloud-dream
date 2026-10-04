@@ -5,11 +5,16 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.nextclouddream.settings.SettingsManager
 import com.nextclouddream.databinding.ActivityMainBinding
+import com.nextclouddream.remote.HttpStatusException
 import com.nextclouddream.remote.NextcloudWebDavClient
 import com.nextclouddream.worker.SyncWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 
 /**
  * Écran de configuration : serveur, identifiants, dossier et options du diaporama.
@@ -68,8 +73,8 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val result = container.repository.syncNow()
             binding.status.text = result.fold(
-                onSuccess = { count -> getString(R.string.config_sync_done, count) },
-                onFailure = { e -> getString(R.string.config_error, e.message) },
+                onSuccess = { count -> resources.getQuantityString(R.plurals.config_sync_done, count, count) },
+                onFailure = ::describeError,
             )
         }
     }
@@ -87,9 +92,26 @@ class MainActivity : AppCompatActivity() {
                 runCatching { NextcloudWebDavClient(url, user, password).listPhotos(folder).size }
             }
             binding.status.text = result.fold(
-                onSuccess = { count -> getString(R.string.config_test_ok, count) },
-                onFailure = { e -> getString(R.string.config_error, e.message) },
+                onSuccess = { count -> resources.getQuantityString(R.plurals.config_test_ok, count, count) },
+                onFailure = ::describeError,
             )
         }
+    }
+
+    /** Message d'erreur compréhensible, dans la langue de l'appareil. */
+    private fun describeError(error: Throwable): String = when (error) {
+        is HttpStatusException -> when (error.code) {
+            401, 403 -> getString(R.string.error_auth)
+            404 -> getString(R.string.error_folder_not_found)
+            else -> getString(R.string.error_http, error.code)
+        }
+        is SSLException -> getString(R.string.error_certificate)
+        is UnknownHostException, is ConnectException, is SocketTimeoutException ->
+            getString(R.string.error_server_unreachable)
+        // URL mal formée (refusée par OkHttp)
+        is IllegalArgumentException -> getString(R.string.error_invalid_url)
+        // Configuration incomplète (synchro lancée sans identifiants)
+        is IllegalStateException -> getString(R.string.config_incomplete)
+        else -> getString(R.string.error_generic, error.message ?: error.javaClass.simpleName)
     }
 }

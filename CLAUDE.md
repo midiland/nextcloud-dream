@@ -2,6 +2,8 @@
 
 Économiseur d'écran Android TV (`DreamService`) qui affiche en diaporama les photos d'un dossier Nextcloud, via WebDAV. Usage personnel, installé en sideload sur une Mi Box. Code et commentaires **en français**.
 
+**Langues de l'interface :** anglais par défaut (`res/values/strings.xml`), français dans `res/values-fr/strings.xml`. Toute nouvelle chaîne va dans les **deux** fichiers (lint `MissingTranslation`). Les pluriels utilisent `<plurals>` ; en français, il faut `one`, `many` et `other`. Les messages d'erreur affichés passent par `MainActivity.describeError()`, jamais par `exception.message`. Les logs restent en français.
+
 ## Commandes
 
 Il n'y a pas de `java` utilisable dans le PATH système : utiliser le JDK d'Android Studio.

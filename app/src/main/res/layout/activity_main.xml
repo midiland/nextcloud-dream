@@ -22,7 +22,7 @@
         <EditText
             android:id="@+id/server_url"
             style="@style/ConfigField"
-            android:hint="https://cloud.exemple.fr"
+            android:hint="@string/config_server_url_hint"
             android:inputType="textUri" />
 
         <TextView
@@ -47,7 +47,7 @@
         <EditText
             android:id="@+id/folder_path"
             style="@style/ConfigField"
-            android:hint="/Photos/ScreenSaver"
+            android:hint="@string/config_folder_hint"
             android:inputType="text" />
 
         <TextView

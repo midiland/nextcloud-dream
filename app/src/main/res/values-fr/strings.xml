@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dream_label">Photos Nextcloud</string>
+
+    <string name="dream_loading">Récupération des photos depuis Nextcloud…</string>
+    <string name="dream_no_photos">Aucune photo disponible — serveur Nextcloud injoignable ou dossier vide</string>
+    <string name="dream_not_configured">Économiseur non configuré — ouvrez l\'application Nextcloud Dream</string>
+
+    <string name="config_server_url">URL du serveur Nextcloud</string>
+    <string name="config_server_url_hint">https://cloud.exemple.fr</string>
+    <string name="config_username">Identifiant</string>
+    <string name="config_app_password">Mot de passe d\'application (pas le mot de passe principal)</string>
+    <string name="config_folder">Dossier de photos</string>
+    <string name="config_slide_interval">Durée d\'affichage d\'une photo (secondes)</string>
+    <string name="config_sync_interval">Rafraîchissement (heures)</string>
+    <string name="config_max_cache">Cache de secours hors connexion (Mo, ~400 Ko par photo)</string>
+    <string name="config_show_clock">Afficher la date et l\'heure</string>
+    <string name="config_show_photo_info">Afficher la date et le lieu de la photo</string>
+    <string name="config_save">Enregistrer et synchroniser</string>
+    <string name="config_test">Tester la connexion</string>
+    <string name="config_incomplete">Renseignez l\'URL, l\'identifiant et le mot de passe d\'application.</string>
+    <string name="config_syncing">Synchronisation en cours…</string>
+    <plurals name="config_sync_done">
+        <item quantity="one">Synchronisation terminée : %1$d photo dans le dossier.</item>
+        <item quantity="many">Synchronisation terminée : %1$d de photos dans le dossier.</item>
+        <item quantity="other">Synchronisation terminée : %1$d photos dans le dossier.</item>
+    </plurals>
+    <string name="config_testing">Connexion au serveur…</string>
+    <plurals name="config_test_ok">
+        <item quantity="one">Connexion réussie : %1$d photo trouvée.</item>
+        <item quantity="many">Connexion réussie : %1$d de photos trouvées.</item>
+        <item quantity="other">Connexion réussie : %1$d photos trouvées.</item>
+    </plurals>
+
+    <string name="error_auth">Authentification refusée : vérifiez l\'identifiant et le mot de passe d\'application.</string>
+    <string name="error_folder_not_found">Dossier introuvable : vérifiez le chemin (il est relatif à vos fichiers Nextcloud).</string>
+    <string name="error_http">Le serveur a répondu une erreur (HTTP %1$d).</string>
+    <string name="error_server_unreachable">Serveur injoignable : vérifiez l\'URL et la connexion réseau.</string>
+    <string name="error_certificate">Connexion sécurisée impossible : le certificat du serveur n\'est pas valide.</string>
+    <string name="error_invalid_url">URL invalide : elle doit commencer par https://</string>
+    <string name="error_generic">Erreur : %1$s</string>
+</resources>
