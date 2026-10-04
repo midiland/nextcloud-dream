@@ -26,6 +26,24 @@ data class RemotePhoto(
 )
 
 /**
+ * Réponse HTTP en erreur. Le code permet de distinguer une photo indisponible
+ * (404, aperçu impossible…) d'un serveur en panne ou injoignable.
+ */
+class HttpStatusException(val code: Int, message: String) : IOException(message) {
+    /** Erreur liée à ce fichier (pas d'aperçu possible, fichier supprimé…), pas au serveur. */
+    val isFileSpecific: Boolean
+        get() = code in FILE_SPECIFIC_CODES
+
+    /** Erreur qui ne se corrigera pas en réessayant (identifiants, dossier). */
+    val isPermanent: Boolean
+        get() = code == 401 || code == 403 || code == 404
+
+    private companion object {
+        val FILE_SPECIFIC_CODES = setOf(400, 403, 404, 410, 415, 501)
+    }
+}
+
+/**
  * Client Nextcloud minimal, authentification Basic avec un mot de passe d'application :
  *  - listing WebDAV (PROPFIND)
  *  - aperçu réduit généré par le serveur (API core/preview)
@@ -39,7 +57,8 @@ class NextcloudWebDavClient(
     appPassword: String,
     private val httpClient: OkHttpClient = defaultHttpClient,
 ) {
-    private val credentials = Credentials.basic(username, appPassword)
+    // UTF-8 : un identifiant ou mot de passe accentué serait refusé (401) en ISO-8859-1
+    private val credentials = Credentials.basic(username, appPassword, Charsets.UTF_8)
     private val serverBaseUrl: HttpUrl = serverUrl.trimEnd('/').toHttpUrl()
 
     /**
@@ -119,7 +138,9 @@ class NextcloudWebDavClient(
 
     private fun <T> execute(request: Request, readBody: (InputStream) -> T): T =
         httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("GET ${request.url.encodedPath} : HTTP ${response.code}")
+            if (!response.isSuccessful) {
+                throw HttpStatusException(response.code, "GET ${request.url.encodedPath} : HTTP ${response.code}")
+            }
             val body = response.body ?: throw IOException("GET ${request.url.encodedPath} : réponse vide")
             body.byteStream().use(readBody)
         }
@@ -143,9 +164,9 @@ class NextcloudWebDavClient(
         httpClient.newCall(request).execute().use { response ->
             when (response.code) {
                 207 -> Unit
-                401 -> throw IOException("Authentification refusée (401) : vérifiez l'identifiant et le token")
-                404 -> throw IOException("Dossier introuvable (404) : ${url.encodedPath}")
-                else -> throw IOException("PROPFIND : HTTP ${response.code}")
+                401 -> throw HttpStatusException(401, "Authentification refusée (401) : vérifiez l'identifiant et le token")
+                404 -> throw HttpStatusException(404, "Dossier introuvable (404) : ${url.encodedPath}")
+                else -> throw HttpStatusException(response.code, "PROPFIND : HTTP ${response.code}")
             }
             val body = response.body ?: throw IOException("PROPFIND : réponse vide")
             return parseMultistatus(body.byteStream(), url)
@@ -208,8 +229,12 @@ class NextcloudWebDavClient(
         fun isImage(fileName: String): Boolean =
             fileName.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
 
-        fun isJpeg(fileName: String): Boolean =
-            fileName.substringAfterLast('.', "").lowercase() in setOf("jpg", "jpeg")
+        fun isJpeg(fileName: String): Boolean = extensionOf(fileName) in setOf("jpg", "jpeg")
+
+        /** PNG et WebP ne contiennent presque jamais d'EXIF : inutile de les télécharger pour ça. */
+        fun mayHaveExif(fileName: String): Boolean = extensionOf(fileName) !in setOf("png", "webp")
+
+        private fun extensionOf(fileName: String) = fileName.substringAfterLast('.', "").lowercase()
 
         private val PROPFIND_BODY = """
             <?xml version="1.0" encoding="UTF-8"?>

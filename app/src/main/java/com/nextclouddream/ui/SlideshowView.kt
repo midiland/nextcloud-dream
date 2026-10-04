@@ -130,10 +130,13 @@ class SlideshowView @JvmOverloads constructor(
 
     private suspend fun crossfade(incoming: Slide, outgoing: Slide) =
         suspendCancellableCoroutine { cont ->
-            outgoing.animate().alpha(0f).setDuration(fadeDurationMs).start()
+            // withLayer : chaque diapositive est rendue une fois dans un calque GPU puis
+            // simplement mélangée, au lieu d'être recomposée à chaque image (GPU modeste de la Mi Box)
+            outgoing.animate().alpha(0f).setDuration(fadeDurationMs).withLayer().start()
             incoming.animate()
                 .alpha(1f)
                 .setDuration(fadeDurationMs)
+                .withLayer()
                 .withEndAction { if (cont.isActive) cont.resume(Unit) }
                 .start()
 

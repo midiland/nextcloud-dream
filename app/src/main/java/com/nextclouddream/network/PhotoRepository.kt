@@ -17,6 +17,18 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import timber.log.Timber
 import java.io.File
 
+/** Résultat d'une demande de photo à afficher. */
+sealed interface FetchResult {
+    /** Photo prête, en cache local. */
+    class Ready(val file: File) : FetchResult
+
+    /** Cette photo-là est indisponible (supprimée, aperçu impossible…) : passer à la suivante. */
+    data object Unavailable : FetchResult
+
+    /** Serveur injoignable ou stockage plein : basculer sur le cache de secours un moment. */
+    data object Offline : FetchResult
+}
+
 /**
  * Point d'accès unique aux photos, en mode hybride :
  *  - la synchro ne télécharge que la liste des photos et leurs métadonnées (index)
@@ -64,8 +76,22 @@ class PhotoRepository(context: Context) {
                 indexStore.save(index)
                 cache.retainOnly(index.map { it.key }.toSet())
 
-                // 2. Métadonnées (date, GPS, lieu) des nouvelles photos, enregistrées au fur et à mesure
+                // 2. Cache de secours d'abord (indispensable hors connexion) : quelques photos
+                //    au hasard, dans la limite de ce que le cache peut contenir
+                val prewarmTarget = minOf(PREWARM_COUNT, (maxCacheBytes() / AVERAGE_PREVIEW_BYTES).toInt())
+                var prewarmed = 0
+                for (photo in index.shuffled()) {
+                    if (cache.listPhotos().size >= prewarmTarget) break
+                    ensureActive()
+                    // Revérifié à chaque fois : l'économiseur a pu la télécharger entre-temps
+                    if (cache.fileFor(photo.key).exists()) continue
+                    if (runCatching { downloadToCache(client, photo) }.isSuccess) prewarmed++
+                }
+
+                // 3. Métadonnées (date, GPS, lieu) des nouvelles photos, sauvegardées
+                //    régulièrement pour que l'économiseur les affiche sans attendre la fin
                 var enriched = 0
+                var lastSave = System.currentTimeMillis()
                 val updated = index.toMutableList()
                 for (i in updated.indices) {
                     ensureActive()
@@ -73,21 +99,14 @@ class PhotoRepository(context: Context) {
                     if (metadata != updated[i].metadata) {
                         updated[i] = updated[i].copy(metadata = metadata)
                         enriched++
-                        if (enriched % SAVE_EVERY == 0) indexStore.save(updated)
+                        if (System.currentTimeMillis() - lastSave > SAVE_INTERVAL_MS) {
+                            indexStore.save(updated)
+                            lastSave = System.currentTimeMillis()
+                        }
                     }
                 }
                 index = updated
                 indexStore.save(index)
-
-                // 3. Cache de secours : quelques photos au hasard si le cache est presque vide
-                val missing = PREWARM_COUNT - cache.listPhotos().size
-                var prewarmed = 0
-                if (missing > 0) {
-                    for (photo in index.filterNot { cache.fileFor(it.key).exists() }.shuffled().take(missing)) {
-                        ensureActive()
-                        if (runCatching { downloadToCache(client, photo) }.isSuccess) prewarmed++
-                    }
-                }
 
                 Timber.i(
                     "Synchro : %d photo(s), %d métadonnée(s) lue(s), %d préchargée(s), %d en cache",
@@ -103,24 +122,32 @@ class PhotoRepository(context: Context) {
     }
 
     /**
-     * Fichier prêt à afficher : depuis le cache s'il y est, sinon téléchargé maintenant.
-     * @return null si la photo n'a pas pu être obtenue (serveur injoignable, stockage plein…).
+     * Photo prête à afficher : depuis le cache si elle y est, sinon téléchargée maintenant.
+     * Distingue une photo indisponible (on passe à la suivante) d'un serveur injoignable
+     * (l'économiseur bascule sur le cache de secours).
      */
-    suspend fun fetchForDisplay(photo: IndexedPhoto): File? = withContext(Dispatchers.IO) {
+    suspend fun fetchForDisplay(photo: IndexedPhoto): FetchResult = withContext(Dispatchers.IO) {
         val cached = cache.fileFor(photo.key)
         if (cached.exists()) {
             cache.touch(cached)
-            return@withContext cached
+            return@withContext FetchResult.Ready(cached)
         }
-        if (!settings.isConfigured) return@withContext null
+        if (!settings.isConfigured) return@withContext FetchResult.Offline
         try {
-            downloadToCache(client(), photo)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
+            FetchResult.Ready(downloadToCache(client(), photo))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: HttpStatusException) {
             Timber.w("Téléchargement impossible : %s (%s)", photo.name, e.message)
-            null
+            if (e.isFileSpecific) FetchResult.Unavailable else FetchResult.Offline
+        } catch (e: Exception) {
+            Timber.w("Téléchargement impossible : %s (%s)", photo.name, e.message)
+            FetchResult.Offline
         }
     }
+
+    /** Retire une photo illisible du cache (elle sera re-téléchargée au prochain passage). */
+    suspend fun evict(key: String) = withContext(Dispatchers.IO) { cache.evict(key) }
 
     /**
      * Télécharge une photo dans le cache : aperçu réduit par le serveur si possible,
@@ -129,16 +156,19 @@ class PhotoRepository(context: Context) {
     private fun downloadToCache(client: NextcloudWebDavClient, photo: IndexedPhoto): File {
         check(cache.hasRoomForDownload()) { "Stockage de l'appareil presque plein" }
         val file = cache.store(photo.key) { destination ->
+            // Repli sur l'original seulement si le serveur ne peut pas produire d'aperçu
+            // pour ce fichier ; un timeout ou une erreur 5xx remonte (serveur en difficulté)
             val previewOk = photo.fileId != null && try {
                 client.downloadPreview(photo.fileId, destination, PREVIEW_MAX_WIDTH, PREVIEW_MAX_HEIGHT)
                 true
-            } catch (e: Exception) {
-                Timber.i("Aperçu indisponible pour %s (%s), téléchargement de l'original", photo.name, e.message)
+            } catch (e: HttpStatusException) {
+                if (!e.isFileSpecific) throw e
+                Timber.i("Aperçu indisponible pour %s (HTTP %d), téléchargement de l'original", photo.name, e.code)
                 false
             }
             if (!previewOk) downloadAndResizeOriginal(client, photo, destination)
         }
-        cache.trim(settings.maxCacheMb * 1024L * 1024L)
+        cache.trim(maxCacheBytes())
         Timber.d("Cache : %s → %d Ko", photo.name, file.length() / 1024)
         return file
     }
@@ -166,7 +196,8 @@ class PhotoRepository(context: Context) {
 
     /**
      * EXIF d'une photo distante. JPEG : seulement le début du fichier.
-     * Autres formats (HEIC…) : l'EXIF peut être n'importe où, on télécharge tout.
+     * HEIC : l'EXIF peut être n'importe où, on télécharge tout (si l'espace le permet).
+     * PNG / WebP : pas d'EXIF en pratique, rien à télécharger.
      * @return null en cas d'erreur réseau (nouvel essai à la prochaine synchro).
      */
     private fun readRemoteMetadata(client: NextcloudWebDavClient, photo: IndexedPhoto): PhotoMetadata? =
@@ -174,6 +205,11 @@ class PhotoRepository(context: Context) {
             val url = photo.url.toHttpUrl()
             if (NextcloudWebDavClient.isJpeg(photo.name)) {
                 PhotoMetadata.readExif(photo.name, client.readHead(url, EXIF_HEAD_BYTES))
+            } else if (!NextcloudWebDavClient.mayHaveExif(photo.name)) {
+                PhotoMetadata()
+            } else if (!cache.hasRoomForDownload()) {
+                Timber.w("Stockage presque plein : métadonnées de %s lues plus tard", photo.name)
+                null
             } else {
                 val original = cache.tempFileFor(photo.key, "exif")
                 try {
@@ -187,6 +223,8 @@ class PhotoRepository(context: Context) {
             Timber.w("Métadonnées illisibles pour %s (%s)", photo.name, e.message)
             null
         }
+
+    private fun maxCacheBytes() = settings.maxCacheMb * 1024L * 1024L
 
     private fun client() = NextcloudWebDavClient(settings.serverUrl, settings.username, settings.appPassword)
 
@@ -204,6 +242,9 @@ class PhotoRepository(context: Context) {
         // Photos téléchargées d'avance par la synchro, pour le mode hors connexion
         const val PREWARM_COUNT = 20
 
-        const val SAVE_EVERY = 10
+        // Taille moyenne observée d'un aperçu (~1 Mo) : borne le préchargement au plafond du cache
+        const val AVERAGE_PREVIEW_BYTES = 1024L * 1024L
+
+        const val SAVE_INTERVAL_MS = 30_000L
     }
 }

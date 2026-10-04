@@ -1,10 +1,12 @@
 package com.nextclouddream.cache
 
 import android.content.Context
+import androidx.core.util.AtomicFile
 import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
 import java.io.File
+import java.io.FileNotFoundException
 
 /**
  * Une photo du dossier Nextcloud, telle que connue après la dernière synchro.
@@ -27,30 +29,34 @@ data class IndexedPhoto(
  */
 class PhotoIndexStore(context: Context) {
 
-    private val file = File(context.filesDir, FILE_NAME)
+    // AtomicFile : écriture dans un fichier à part, fsync puis remplacement ; un index
+    // à moitié écrit (coupure de courant) n'est jamais lu à la place du précédent
+    private val file = AtomicFile(File(context.filesDir, FILE_NAME))
 
     @Synchronized
-    fun load(): List<IndexedPhoto> {
-        if (!file.exists()) return emptyList()
-        return try {
-            val array = JSONArray(file.readText())
+    fun load(): List<IndexedPhoto> =
+        try {
+            val array = JSONArray(file.readFully().decodeToString())
             (0 until array.length()).map { i -> fromJson(array.getJSONObject(i)) }
+        } catch (e: FileNotFoundException) {
+            emptyList() // pas encore de synchro
         } catch (e: Exception) {
             Timber.w(e, "Index des photos illisible, il sera reconstruit")
             emptyList()
         }
-    }
 
     /** Écriture atomique : l'économiseur ne lit jamais un index à moitié écrit. */
     @Synchronized
     fun save(photos: List<IndexedPhoto>) {
         val array = JSONArray()
         photos.forEach { array.put(toJson(it)) }
-        val temp = File(file.parentFile, "$FILE_NAME.part")
-        temp.writeText(array.toString())
-        if (!temp.renameTo(file)) {
-            temp.delete()
-            error("Écriture de l'index impossible")
+        val out = file.startWrite()
+        try {
+            out.write(array.toString().toByteArray())
+            file.finishWrite(out)
+        } catch (e: Exception) {
+            file.failWrite(out)
+            throw e
         }
     }
 

@@ -5,6 +5,7 @@ import android.os.storage.StorageManager
 import androidx.core.content.getSystemService
 import timber.log.Timber
 import java.io.File
+import java.io.FileOutputStream
 import java.security.MessageDigest
 
 /**
@@ -32,23 +33,35 @@ class PhotoCacheManager(context: Context) {
 
     fun fileFor(key: String): File = File(directory, "$key$PHOTO_SUFFIX")
 
-    /** Fichier de travail pour un téléchargement en cours (jamais listé comme photo). */
-    fun tempFileFor(key: String, purpose: String): File = File(directory, "$key.$purpose$TEMP_SUFFIX")
+    /**
+     * Fichier de travail pour un téléchargement en cours (jamais listé comme photo).
+     * Nom unique : la synchro et l'économiseur peuvent télécharger la même photo en
+     * même temps sans écrire dans le même fichier (ce qui produirait un JPEG corrompu).
+     */
+    fun tempFileFor(key: String, purpose: String): File =
+        File.createTempFile("$key.$purpose.", TEMP_SUFFIX, directory)
 
     /**
      * Écrit une photo de façon atomique : [writer] remplit un fichier temporaire,
-     * renommé seulement une fois complet. Le diaporama ne voit jamais d'image tronquée.
+     * synchronisé sur le disque puis renommé. Le diaporama ne voit jamais d'image
+     * tronquée, même après une coupure de courant.
      */
     fun store(key: String, writer: (File) -> Unit): File {
         val target = fileFor(key)
         val temp = tempFileFor(key, "write")
         try {
             writer(temp)
+            FileOutputStream(temp, true).use { it.fd.sync() }
             if (!temp.renameTo(target)) error("Renommage impossible : ${temp.name}")
         } finally {
             temp.delete()
         }
         return target
+    }
+
+    /** Retire une photo du cache (ex. fichier illisible : elle sera re-téléchargée). */
+    fun evict(key: String) {
+        if (fileFor(key).delete()) Timber.i("Cache : %s supprimée (illisible)", key)
     }
 
     /** Marque la photo comme récemment utilisée (elle sera supprimée en dernier). */
@@ -71,10 +84,15 @@ class PhotoCacheManager(context: Context) {
     /**
      * Supprime les photos qui ne sont plus dans le dossier Nextcloud (ou modifiées),
      * ainsi que les restes de téléchargements interrompus et les fichiers d'anciennes versions.
+     * Les fichiers temporaires récents sont épargnés : ce sont des téléchargements en cours.
      */
     fun retainOnly(keys: Set<String>) {
+        val staleBefore = System.currentTimeMillis() - STALE_TEMP_MS
         directory.listFiles()
-            ?.filter { !it.name.endsWith(PHOTO_SUFFIX) || it.name.removeSuffix(PHOTO_SUFFIX) !in keys }
+            ?.filter { file ->
+                if (file.name.endsWith(PHOTO_SUFFIX)) file.name.removeSuffix(PHOTO_SUFFIX) !in keys
+                else file.lastModified() < staleBefore
+            }
             ?.forEach { file ->
                 Timber.d("Cache : suppression de %s", file.name)
                 file.delete()
@@ -98,6 +116,7 @@ class PhotoCacheManager(context: Context) {
         private const val DIR_NAME = "photos"
         private const val PHOTO_SUFFIX = ".jpg"
         private const val TEMP_SUFFIX = ".part"
+        private const val STALE_TEMP_MS = 60 * 60_000L
 
         // Marge pour un original téléchargé quand l'aperçu serveur n'est pas disponible
         private const val MIN_FREE_BYTES = 30L * 1024 * 1024

@@ -2,6 +2,8 @@ package com.nextclouddream
 
 import android.app.Application
 import android.util.Log
+import coil.ImageLoader
+import coil.ImageLoaderFactory
 import com.nextclouddream.data.SettingsManager
 import com.nextclouddream.worker.SyncWorker
 import timber.log.Timber
@@ -10,7 +12,7 @@ import timber.log.Timber
  * Point d'entrée de l'application : initialise les logs et
  * s'assure que la synchro périodique est planifiée.
  */
-class NextcloudDreamApp : Application() {
+class NextcloudDreamApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
@@ -20,7 +22,20 @@ class NextcloudDreamApp : Application() {
             SyncWorker.schedule(this)
         }
     }
+
+    override fun newImageLoader(): ImageLoader = buildImageLoader()
 }
+
+/**
+ * Chargeur d'images de toute l'app, sans cache : les photos sont déjà des fichiers
+ * locaux et chacune ne revient qu'une fois par cycle ; garder des bitmaps en mémoire
+ * ne ferait que consommer la RAM limitée de la box.
+ */
+private fun NextcloudDreamApp.buildImageLoader(): ImageLoader =
+    ImageLoader.Builder(this)
+        .memoryCache(null)
+        .diskCache(null)
+        .build()
 
 /**
  * En release : seulement les infos, avertissements et erreurs (synchro, échecs),

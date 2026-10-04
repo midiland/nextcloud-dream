@@ -6,6 +6,8 @@ import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import timber.log.Timber
+import java.io.IOException
+import java.security.GeneralSecurityException
 
 /**
  * Réglages de l'application, stockés chiffrés (clé AES dans l'Android Keystore).
@@ -13,7 +15,9 @@ import timber.log.Timber
  */
 class SettingsManager(context: Context) {
 
-    private val prefs: SharedPreferences = openEncryptedPrefs(context.applicationContext)
+    // Ouvertes une seule fois par processus : la création (Keystore + Tink) est lente
+    // sur la Mi Box et n'est pas sûre en accès concurrent (économiseur + worker)
+    private val prefs: SharedPreferences = sharedPrefs(context.applicationContext)
 
     /** URL de base du serveur, sans slash final (ex. https://cloud.exemple.fr). */
     var serverUrl: String
@@ -59,32 +63,51 @@ class SettingsManager(context: Context) {
     val isConfigured: Boolean
         get() = serverUrl.isNotBlank() && username.isNotBlank() && appPassword.isNotBlank()
 
-    private fun openEncryptedPrefs(context: Context): SharedPreferences =
-        try {
-            createEncryptedPrefs(context)
-        } catch (e: Exception) {
-            // Clé du Keystore perdue (restauration, reset partiel…) : les données sont
-            // illisibles, on repart d'une configuration vierge plutôt que de planter.
-            Timber.e(e, "Préférences chiffrées illisibles, réinitialisation")
-            context.deleteSharedPreferences(PREFS_NAME)
-            createEncryptedPrefs(context)
-        }
-
-    private fun createEncryptedPrefs(context: Context): SharedPreferences {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        return EncryptedSharedPreferences.create(
-            context,
-            PREFS_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
-    }
-
     companion object {
         private const val PREFS_NAME = "nextcloud_dream_secure_prefs"
+
+        @Volatile
+        private var instance: SharedPreferences? = null
+
+        private fun sharedPrefs(context: Context): SharedPreferences =
+            instance ?: synchronized(this) {
+                instance ?: openEncryptedPrefs(context).also { instance = it }
+            }
+
+        /**
+         * Ouvre les préférences chiffrées. Elles ne sont effacées que si la clé du Keystore
+         * est réellement perdue (erreur de chiffrement deux fois de suite, ex. après une
+         * restauration) : une erreur passagère ne doit jamais effacer les identifiants.
+         */
+        private fun openEncryptedPrefs(context: Context): SharedPreferences {
+            var lastError: Exception? = null
+            repeat(2) {
+                try {
+                    return createEncryptedPrefs(context)
+                } catch (e: GeneralSecurityException) {
+                    lastError = e
+                } catch (e: IOException) {
+                    // Inclut InvalidProtocolBufferException (keyset Tink illisible)
+                    lastError = e
+                }
+            }
+            Timber.e(lastError, "Préférences chiffrées illisibles (clé perdue ?), réinitialisation")
+            context.deleteSharedPreferences(PREFS_NAME)
+            return createEncryptedPrefs(context)
+        }
+
+        private fun createEncryptedPrefs(context: Context): SharedPreferences {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            return EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        }
 
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_USERNAME = "username"

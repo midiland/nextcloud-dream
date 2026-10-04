@@ -9,8 +9,10 @@ import com.nextclouddream.R
 import com.nextclouddream.cache.IndexedPhoto
 import com.nextclouddream.cache.PhotoMetadata
 import com.nextclouddream.data.SettingsManager
+import com.nextclouddream.network.FetchResult
 import com.nextclouddream.network.PhotoRepository
 import com.nextclouddream.ui.SlideshowView
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -119,67 +121,109 @@ class NextcloudDreamService : DreamService() {
     /** Après un échec réseau, on reste sur le cache de secours jusqu'à cette date. */
     private var offlineUntil = 0L
 
+    /** Dernière relecture de l'index pour récupérer des métadonnées encore absentes. */
+    private var lastMetadataRefresh = 0L
+
     /**
      * Boucle principale : affiche une photo, précharge la suivante pendant l'affichage,
      * attend l'intervalle, puis passe à la suivante (déjà prête : aucune attente réseau).
+     * Une erreur imprévue ne doit jamais figer l'écran : elle est journalisée et la
+     * boucle repart après une pause.
      */
-    private suspend fun runSlideshow() = coroutineScope {
+    private suspend fun runSlideshow() {
         val intervalMs = settings.slideIntervalSeconds * 1000L
         val showPhotoInfo = settings.showPhotoInfo
         var playlist = PhotoPlaylist(awaitIndex())
         hideMessage()
-        var prefetched: Deferred<Slide?>? = null
 
-        while (isActive) {
-            val slide = prefetched?.await() ?: nextSlide(playlist)
-            prefetched = null
-            if (slide == null) {
-                // Ni le serveur ni le cache de secours ne fournissent de photo
-                Timber.w("Aucune photo affichable, nouvel essai dans %d min", RETRY_DELAY_MS / 60_000)
-                showMessage(R.string.dream_no_photos)
-                delay(RETRY_DELAY_MS)
-                playlist = PhotoPlaylist(awaitIndex())
-                hideMessage()
-                continue
+        while (currentCoroutineContext().isActive) {
+            try {
+                coroutineScope {
+                    var prefetched: Deferred<Slide?>? = null
+                    while (isActive) {
+                        val slide = prefetched?.await() ?: nextSlide(playlist)
+                        prefetched = null
+                        if (slide == null) {
+                            // Ni le serveur ni le cache de secours ne fournissent de photo
+                            Timber.w("Aucune photo affichable, nouvel essai dans %d min", RETRY_DELAY_MS / 60_000)
+                            showMessage(R.string.dream_no_photos)
+                            delay(RETRY_DELAY_MS)
+                            playlist = PhotoPlaylist(awaitIndex())
+                            hideMessage()
+                            continue
+                        }
+
+                        hideMessage()
+                        val metadata = if (showPhotoInfo) slide.metadata else null
+                        if (!slideshowView.showPhoto(slide.file) { updatePhotoInfo(metadata) }) {
+                            // Fichier corrompu ou format non décodable : supprimé du cache
+                            // (re-téléchargé au prochain passage) et écarté de ce cycle
+                            Timber.w("Impossible d'afficher %s, photo ignorée", slide.key)
+                            repository.evict(slide.key)
+                            playlist.remove(slide.key)
+                            continue
+                        }
+
+                        // Une photo d'avance : la suivante se télécharge pendant l'affichage de celle-ci
+                        prefetched = async { nextSlide(playlist) }
+                        delay(intervalMs)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Erreur dans le diaporama, reprise dans %d s", ERROR_PAUSE_MS / 1000)
+                delay(ERROR_PAUSE_MS)
             }
-
-            hideMessage()
-            val metadata = if (showPhotoInfo) slide.metadata else null
-            if (!slideshowView.showPhoto(slide.file) { updatePhotoInfo(metadata) }) {
-                // Fichier corrompu ou format non décodable : on l'écarte
-                Timber.w("Impossible d'afficher %s, photo ignorée", slide.key)
-                playlist.remove(slide.key)
-                continue
-            }
-
-            // Une photo d'avance : la suivante se télécharge pendant l'affichage de celle-ci
-            prefetched = async { nextSlide(playlist) }
-            delay(intervalMs)
         }
     }
 
     /**
      * Prochaine photo affichable.
      *  - En ligne : depuis le cache de secours si elle y est, sinon téléchargée maintenant.
+     *    Une photo indisponible (supprimée, aperçu impossible) est simplement sautée.
      *  - Serveur injoignable : on passe aux photos de la playlist déjà en cache,
      *    et on ne retente le réseau qu'après OFFLINE_RETRY_MS.
      */
     private suspend fun nextSlide(playlist: PhotoPlaylist<String>): Slide? {
-        if (playlist.isCycleOver) refreshIndex(playlist)
-        val key = playlist.next() ?: return null
-        var photo = indexByKey[key]
-        if (photo != null && photo.metadata == null) {
-            // Synchro en cours (premier lancement) : les métadonnées arrivent au fur et à mesure
+        repeat(MAX_UNAVAILABLE_IN_A_ROW) {
+            if (playlist.isCycleOver) refreshIndex(playlist)
+            val key = playlist.next() ?: return null
+            val photo = photoWithMetadata(key)
+
+            if (photo == null || System.currentTimeMillis() < offlineUntil) return cachedSlide(playlist, key)
+
+            when (val result = repository.fetchForDisplay(photo)) {
+                is FetchResult.Ready -> return Slide(key, result.file, photo.metadata)
+                FetchResult.Unavailable -> Unit // photo suivante
+                FetchResult.Offline -> {
+                    Timber.w("Serveur injoignable, bascule sur le cache de secours")
+                    offlineUntil = System.currentTimeMillis() + OFFLINE_RETRY_MS
+                    return cachedSlide(playlist, key)
+                }
+            }
+        }
+        return null
+    }
+
+    /**
+     * Photo de l'index. Au premier lancement, la synchro lit les métadonnées en même
+     * temps que le diaporama démarre : l'index est relu (au plus une fois par minute)
+     * pour les récupérer dès qu'elles sont prêtes.
+     */
+    private suspend fun photoWithMetadata(key: String): IndexedPhoto? {
+        val photo = indexByKey[key]
+        val now = System.currentTimeMillis()
+        if (photo != null && photo.metadata == null && now - lastMetadataRefresh > METADATA_REFRESH_MS) {
+            lastMetadataRefresh = now
             indexByKey = repository.getIndex().associateBy { it.key }.ifEmpty { indexByKey }
-            photo = indexByKey[key]
+            return indexByKey[key]
         }
+        return photo
+    }
 
-        if (photo != null && System.currentTimeMillis() >= offlineUntil) {
-            repository.fetchForDisplay(photo)?.let { return Slide(key, it, photo.metadata) }
-            Timber.w("Photo %s indisponible, bascule sur le cache de secours", photo.name)
-            offlineUntil = System.currentTimeMillis() + OFFLINE_RETRY_MS
-        }
-
+    /** Hors ligne : prochaine photo de la playlist (à partir de [key]) présente dans le cache. */
+    private suspend fun cachedSlide(playlist: PhotoPlaylist<String>, key: String): Slide? {
         val cached = repository.getCachedPhotos().associateBy { it.nameWithoutExtension }
         var candidate: String? = key
         repeat(playlist.size) {
@@ -302,6 +346,10 @@ class NextcloudDreamService : DreamService() {
         const val FADE_DURATION_MS = 1500L
         const val INDEX_POLL_INTERVAL_MS = 2_000L
         const val OFFLINE_RETRY_MS = 5 * 60_000L
+        const val ERROR_PAUSE_MS = 10_000L
+        const val METADATA_REFRESH_MS = 60_000L
+        // Photos indisponibles consécutives avant d'abandonner pour ce tour
+        const val MAX_UNAVAILABLE_IN_A_ROW = 10
         const val RETRY_DELAY_MS = 5 * 60_000L
         const val CLOCK_SHIFT_INTERVAL_MS = 60_000L
         const val CLOCK_MAX_SHIFT_DP = 24f

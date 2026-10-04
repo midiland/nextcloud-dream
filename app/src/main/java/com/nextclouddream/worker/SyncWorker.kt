@@ -11,6 +11,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.nextclouddream.data.SettingsManager
+import com.nextclouddream.network.HttpStatusException
 import com.nextclouddream.network.PhotoRepository
 import timber.log.Timber
 import java.util.concurrent.TimeUnit
@@ -22,8 +23,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         Timber.i("SyncWorker : début (tentative %d)", runAttemptCount + 1)
         return PhotoRepository(applicationContext).syncNow().fold(
             onSuccess = { Result.success() },
-            // Serveur injoignable : WorkManager réessaie plus tard (backoff exponentiel)
-            onFailure = { if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure() },
+            onFailure = { e ->
+                // Non configuré, identifiants ou dossier invalides : réessayer ne changera rien.
+                // Serveur injoignable : WorkManager réessaie plus tard (backoff exponentiel).
+                val permanent = e is IllegalStateException || (e is HttpStatusException && e.isPermanent)
+                if (permanent || runAttemptCount >= MAX_RETRIES) Result.failure() else Result.retry()
+            },
         )
     }
 
