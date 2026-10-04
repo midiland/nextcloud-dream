@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
+
+    <!-- Diaporama plein écran (deux ImageView superposées pour le fondu) -->
+    <com.nextclouddream.ui.SlideshowView
+        android:id="@+id/slideshow"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Overlay date/heure, dans la zone de sécurité TV (overscan ~5 %) -->
+    <LinearLayout
+        android:id="@+id/clock_container"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="48dp"
+        android:layout_marginBottom="32dp"
+        android:gravity="end"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextClock
+            android:id="@+id/clock_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:format12Hour="h:mm"
+            android:format24Hour="HH:mm"
+            android:shadowColor="#B3000000"
+            android:shadowRadius="8"
+            android:textColor="#E6FFFFFF"
+            android:textSize="40sp" />
+
+        <TextClock
+            android:id="@+id/clock_date"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:format12Hour="EEEE d MMMM"
+            android:format24Hour="EEEE d MMMM"
+            android:shadowColor="#B3000000"
+            android:shadowRadius="8"
+            android:textColor="#CCFFFFFF"
+            android:textSize="18sp" />
+    </LinearLayout>
+
+    <!-- Overlay date de prise de vue / lieu, en bas à gauche -->
+    <LinearLayout
+        android:id="@+id/photo_info_container"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="48dp"
+        android:layout_marginBottom="32dp"
+        android:alpha="0"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/photo_date"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:shadowColor="#B3000000"
+            android:shadowRadius="8"
+            android:textColor="#E6FFFFFF"
+            android:textSize="20sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/photo_place"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:shadowColor="#B3000000"
+            android:shadowRadius="8"
+            android:textColor="#CCFFFFFF"
+            android:textSize="16sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- Message discret (chargement / erreur) -->
+    <TextView
+        android:id="@+id/message"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginHorizontal="96dp"
+        android:gravity="center"
+        android:textColor="#80FFFFFF"
+        android:textSize="18sp"
+        android:visibility="gone" />
+
+</FrameLayout>

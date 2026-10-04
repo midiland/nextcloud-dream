@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lie l'économiseur d'écran à son écran de réglages (bouton "Paramètres" côté système) -->
+<dream xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.nextclouddream/.MainActivity" />

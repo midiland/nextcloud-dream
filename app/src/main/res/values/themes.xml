@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.NextcloudDream" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="colorAccent">#0082C9</item>
+    </style>
+
+    <style name="ConfigTitle">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginBottom">16dp</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">28sp</item>
+    </style>
+
+    <style name="ConfigLabel">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">12dp</item>
+        <item name="android:textColor">#B0FFFFFF</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="ConfigField">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textColorHint">#60FFFFFF</item>
+        <item name="android:importantForAutofill">no</item>
+        <item name="android:singleLine">true</item>
+    </style>
+</resources>

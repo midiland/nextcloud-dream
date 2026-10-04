@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Écran de configuration, navigable à la télécommande (D-pad) -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#101418">
+
+    <LinearLayout
+        android:layout_width="640dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingVertical="32dp">
+
+        <TextView
+            style="@style/ConfigTitle"
+            android:text="@string/app_name" />
+
+        <TextView
+            style="@style/ConfigLabel"
+            android:text="@string/config_server_url" />
+        <EditText
+            android:id="@+id/server_url"
+            style="@style/ConfigField"
+            android:hint="https://cloud.exemple.fr"
+            android:inputType="textUri" />
+
+        <TextView
+            style="@style/ConfigLabel"
+            android:text="@string/config_username" />
+        <EditText
+            android:id="@+id/username"
+            style="@style/ConfigField"
+            android:inputType="text" />
+
+        <TextView
+            style="@style/ConfigLabel"
+            android:text="@string/config_app_password" />
+        <EditText
+            android:id="@+id/app_password"
+            style="@style/ConfigField"
+            android:inputType="textPassword" />
+
+        <TextView
+            style="@style/ConfigLabel"
+            android:text="@string/config_folder" />
+        <EditText
+            android:id="@+id/folder_path"
+            style="@style/ConfigField"
+            android:hint="/Photos/ScreenSaver"
+            android:inputType="text" />
+
+        <TextView
+            style="@style/ConfigLabel"
+            android:text="@string/config_slide_interval" />
+        <EditText
+            android:id="@+id/slide_interval"
+            style="@style/ConfigField"
+            android:inputType="number" />
+
+        <TextView
+            style="@style/ConfigLabel"
+            android:text="@string/config_sync_interval" />
+        <EditText
+            android:id="@+id/sync_interval"
+            style="@style/ConfigField"
+            android:inputType="number" />
+
+        <TextView
+            style="@style/ConfigLabel"
+            android:text="@string/config_max_cache" />
+        <EditText
+            android:id="@+id/max_cache"
+            style="@style/ConfigField"
+            android:inputType="number" />
+
+        <CheckBox
+            android:id="@+id/show_clock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/config_show_clock"
+            android:textColor="#FFFFFF" />
+
+        <CheckBox
+            android:id="@+id/show_photo_info"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/config_show_photo_info"
+            android:textColor="#FFFFFF" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/save_button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/config_save" />
+
+            <Button
+                android:id="@+id/test_button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:layout_weight="1"
+                android:text="@string/config_test" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textColor="#B0FFFFFF"
+            android:textSize="16sp" />
+    </LinearLayout>
+</ScrollView>
