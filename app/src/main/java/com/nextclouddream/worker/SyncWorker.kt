@@ -1,5 +1,6 @@
 package com.nextclouddream.worker
 
+import com.nextclouddream.container
 import android.content.Context
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -10,9 +11,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.nextclouddream.data.SettingsManager
-import com.nextclouddream.network.HttpStatusException
-import com.nextclouddream.network.PhotoRepository
+import com.nextclouddream.remote.HttpStatusException
 import timber.log.Timber
 import java.util.concurrent.TimeUnit
 
@@ -21,7 +20,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
     override suspend fun doWork(): Result {
         Timber.i("SyncWorker : début (tentative %d)", runAttemptCount + 1)
-        return PhotoRepository(applicationContext).syncNow().fold(
+        return applicationContext.container.repository.syncNow().fold(
             onSuccess = { Result.success() },
             onFailure = { e ->
                 // Non configuré, identifiants ou dossier invalides : réessayer ne changera rien.
@@ -43,7 +42,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         /** Planifie (ou met à jour) la synchro périodique selon les réglages. */
         fun schedule(context: Context) {
-            val hours = SettingsManager(context).syncIntervalHours.toLong()
+            val hours = context.container.settings.syncIntervalHours.toLong()
             val request = PeriodicWorkRequestBuilder<SyncWorker>(hours, TimeUnit.HOURS)
                 .setConstraints(networkConstraint)
                 .build()

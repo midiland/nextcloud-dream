@@ -1,4 +1,4 @@
-package com.nextclouddream.network
+package com.nextclouddream.remote
 
 import android.content.Context
 import android.location.Address

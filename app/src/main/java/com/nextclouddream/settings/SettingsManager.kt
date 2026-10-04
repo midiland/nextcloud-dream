@@ -1,4 +1,4 @@
-package com.nextclouddream.data
+package com.nextclouddream.settings
 
 import android.content.Context
 import android.content.SharedPreferences

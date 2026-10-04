@@ -14,7 +14,7 @@ import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Precision
 import coil.size.Scale
-import com.nextclouddream.cache.ImageResizer
+import com.nextclouddream.image.Framing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -62,7 +62,7 @@ class SlideshowView @JvmOverloads constructor(
             Timber.w("Dimensions illisibles : %s", file.name)
             return false
         }
-        val showWhole = ImageResizer.shouldShowWholeImage(bounds.first, bounds.second)
+        val showWhole = Framing.shouldShowWholeImage(bounds.first, bounds.second)
 
         // Taille cible = taille de la vue, ou de l'écran si la vue n'est pas encore mesurée
         val targetWidth = width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels

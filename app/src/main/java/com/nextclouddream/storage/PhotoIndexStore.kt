@@ -1,7 +1,8 @@
-package com.nextclouddream.cache
+package com.nextclouddream.storage
 
-import android.content.Context
 import androidx.core.util.AtomicFile
+import com.nextclouddream.photos.IndexedPhoto
+import com.nextclouddream.photos.PhotoMetadata
 import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
@@ -9,29 +10,15 @@ import java.io.File
 import java.io.FileNotFoundException
 
 /**
- * Une photo du dossier Nextcloud, telle que connue après la dernière synchro.
- * L'image elle-même n'est pas forcément en cache : elle est téléchargée à la volée.
- */
-data class IndexedPhoto(
-    /** Identifiant stable = nom du fichier dans le cache. Change si la photo est modifiée (ETag). */
-    val key: String,
-    val url: String,
-    val name: String,
-    val fileId: Long?,
-    /** null tant que l'EXIF n'a pas pu être lu (nouvel essai à la synchro suivante). */
-    val metadata: PhotoMetadata?,
-)
-
-/**
- * Index des photos, stocké en JSON dans filesDir. Écrit par la synchro, lu par
+ * Index des photos, stocké en JSON (filesDir/photo_index.json). Écrit par la synchro, lu par
  * l'économiseur : il permet de démarrer instantanément et hors connexion,
  * sans refaire de PROPFIND.
  */
-class PhotoIndexStore(context: Context) {
+class PhotoIndexStore(indexFile: File) {
 
     // AtomicFile : écriture dans un fichier à part, fsync puis remplacement ; un index
     // à moitié écrit (coupure de courant) n'est jamais lu à la place du précédent
-    private val file = AtomicFile(File(context.filesDir, FILE_NAME))
+    private val file = AtomicFile(indexFile)
 
     @Synchronized
     fun load(): List<IndexedPhoto> =
@@ -77,7 +64,6 @@ class PhotoIndexStore(context: Context) {
     )
 
     private companion object {
-        const val FILE_NAME = "photo_index.json"
         const val KEY_KEY = "key"
         const val KEY_URL = "url"
         const val KEY_NAME = "name"

@@ -1,16 +1,17 @@
 package com.nextclouddream.dream
 
+import com.nextclouddream.container
 import android.service.dreams.DreamService
 import android.view.View
 import android.widget.TextView
 import androidx.annotation.StringRes
 import androidx.core.view.isVisible
 import com.nextclouddream.R
-import com.nextclouddream.cache.IndexedPhoto
-import com.nextclouddream.cache.PhotoMetadata
-import com.nextclouddream.data.SettingsManager
-import com.nextclouddream.network.FetchResult
-import com.nextclouddream.network.PhotoRepository
+import com.nextclouddream.photos.IndexedPhoto
+import com.nextclouddream.photos.PhotoMetadata
+import com.nextclouddream.settings.SettingsManager
+import com.nextclouddream.photos.FetchResult
+import com.nextclouddream.photos.PhotoRepository
 import com.nextclouddream.ui.SlideshowView
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -82,8 +83,8 @@ class NextcloudDreamService : DreamService() {
         photoPlaceView = findViewById(R.id.photo_place)
         messageView = findViewById(R.id.message)
 
-        settings = SettingsManager(applicationContext)
-        repository = PhotoRepository(applicationContext)
+        settings = container.settings
+        repository = container.repository
     }
 
     override fun onDreamingStarted() {

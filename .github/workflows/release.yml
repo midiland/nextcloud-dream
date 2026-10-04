@@ -41,6 +41,11 @@ jobs:
       - name: Installation de Gradle (avec cache)
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Tests unitaires
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest
+
       - name: Préparation de la clé de signature
         env:
           SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}

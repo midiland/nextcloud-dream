@@ -314,26 +314,34 @@ Press any key on the remote to exit the screensaver.
 
 ```
 app/src/main/java/com/nextclouddream/
+├── NextcloudDreamApp.kt             initialization (logs, image loader, periodic sync)
+├── AppContainer.kt                  process-wide instances (settings, repository)
 ├── MainActivity.kt                  configuration screen
-├── NextcloudDreamApp.kt             initialization (logs, periodic sync)
 ├── dream/
 │   ├── NextcloudDreamService.kt     the screensaver: slideshow, 1 photo ahead, offline mode
 │   └── PhotoPlaylist.kt             random order without close repeats
 ├── ui/
 │   ├── SlideshowView.kt             display, framing, cross-fade
 │   └── BlurredBackground.kt         blurred background for portrait photos
-├── network/
-│   ├── NextcloudWebDavClient.kt     WebDAV, Nextcloud previews, partial reads (EXIF)
-│   ├── PhotoRepository.kt           index sync, on-the-fly download
+├── photos/
+│   ├── PhotoRepository.kt           index sync, on-the-fly download, fallback logic
+│   ├── IndexedPhoto.kt, PhotoMetadata.kt, FetchResult.kt   models
+├── remote/
+│   ├── NextcloudWebDavClient.kt     WebDAV, Nextcloud previews, partial reads
+│   ├── MultistatusParser.kt         PROPFIND response parsing
+│   ├── ExifReader.kt                date taken + GPS from EXIF
 │   └── PlaceResolver.kt             GPS coordinates → place name
-├── cache/
-│   ├── PhotoIndex.kt                local photo index (+ date, GPS, place)
-│   ├── PhotoCacheManager.kt         fallback cache (LRU, size-capped)
-│   ├── PhotoMetadata.kt             EXIF reading
+├── storage/
+│   ├── PhotoCacheManager.kt         fallback cache (LRU, size-capped, atomic writes)
+│   └── PhotoIndexStore.kt           local photo index (JSON, AtomicFile)
+├── image/
+│   ├── Framing.kt                   crop vs. whole-image rule
 │   └── ImageResizer.kt              on-device resizing (when no server preview)
-├── data/SettingsManager.kt          encrypted settings
+├── settings/SettingsManager.kt      encrypted settings
 └── worker/SyncWorker.kt             periodic background sync
 ```
+
+Unit tests (JVM, no emulator needed) are in `app/src/test`: `./gradlew testDebugUnitTest`. They also run in CI before each release build.
 
 Dependencies: Coil, OkHttp, WorkManager, AndroidX Security (EncryptedSharedPreferences), ExifInterface, Coroutines, Timber.
 

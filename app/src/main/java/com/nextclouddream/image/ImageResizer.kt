@@ -1,4 +1,4 @@
-package com.nextclouddream.cache
+package com.nextclouddream.image
 
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
@@ -24,16 +24,6 @@ object ImageResizer {
     const val TARGET_WIDTH = 1920
     const val TARGET_HEIGHT = 1080
     private const val JPEG_QUALITY = 88
-
-    /**
-     * Photos en portrait ou presque carrées : affichées en entier sur fond flou,
-     * car un recadrage plein écran 16:9 en couperait la moitié (souvent les visages).
-     */
-    fun shouldShowWholeImage(width: Int, height: Int): Boolean =
-        width < height * MIN_CROP_ASPECT_RATIO
-
-    // En dessous de ce ratio largeur/hauteur, on n'applique pas de recadrage plein écran
-    private const val MIN_CROP_ASPECT_RATIO = 1.2f
 
     /**
      * Écrit dans [destination] une version réduite de [source], en gardant ses proportions :
@@ -77,7 +67,7 @@ object ImageResizer {
             val scaleX = TARGET_WIDTH / width.toFloat()
             val scaleY = TARGET_HEIGHT / height.toFloat()
             // "cover" pour le paysage, "fit" pour le portrait ; jamais d'agrandissement
-            val scale = min(1f, if (shouldShowWholeImage(width, height)) min(scaleX, scaleY) else max(scaleX, scaleY))
+            val scale = min(1f, if (Framing.shouldShowWholeImage(width, height)) min(scaleX, scaleY) else max(scaleX, scaleY))
             targetWidth = (width * scale).roundToInt()
             targetHeight = (height * scale).roundToInt()
             if (scale < 1f) {

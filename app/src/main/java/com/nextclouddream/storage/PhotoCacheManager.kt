@@ -1,8 +1,6 @@
-package com.nextclouddream.cache
+package com.nextclouddream.storage
 
-import android.content.Context
 import android.os.storage.StorageManager
-import androidx.core.content.getSystemService
 import timber.log.Timber
 import java.io.File
 import java.io.FileOutputStream
@@ -17,13 +15,17 @@ import java.security.MessageDigest
  *  - éviter de re-télécharger une photo revue peu après
  *  - continuer le diaporama si le serveur Nextcloud est injoignable
  *
- * Stocké dans filesDir (et non cacheDir) : Android peut vider cacheDir quand
+ * Stocké dans filesDir/photos (et non cacheDir) : Android peut vider cacheDir quand
  * l'espace manque, ce qui casserait le fonctionnement hors connexion.
  */
-class PhotoCacheManager(context: Context) {
-
-    val directory: File = File(context.filesDir, DIR_NAME).apply { mkdirs() }
-    private val storageManager: StorageManager? = context.getSystemService()
+class PhotoCacheManager(
+    val directory: File,
+    /** null en test : seul l'espace libre brut du dossier est alors vérifié. */
+    private val storageManager: StorageManager?,
+) {
+    init {
+        directory.mkdirs()
+    }
 
     /** Photos complètes présentes en cache (les fichiers temporaires sont exclus). */
     fun listPhotos(): List<File> =
@@ -113,7 +115,6 @@ class PhotoCacheManager(context: Context) {
     }
 
     companion object {
-        private const val DIR_NAME = "photos"
         private const val PHOTO_SUFFIX = ".jpg"
         private const val TEMP_SUFFIX = ".part"
         private const val STALE_TEMP_MS = 60 * 60_000L

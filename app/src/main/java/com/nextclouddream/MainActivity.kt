@@ -3,10 +3,9 @@ package com.nextclouddream
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.nextclouddream.data.SettingsManager
+import com.nextclouddream.settings.SettingsManager
 import com.nextclouddream.databinding.ActivityMainBinding
-import com.nextclouddream.network.NextcloudWebDavClient
-import com.nextclouddream.network.PhotoRepository
+import com.nextclouddream.remote.NextcloudWebDavClient
 import com.nextclouddream.worker.SyncWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -25,7 +24,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        settings = SettingsManager(this)
+        settings = container.settings
 
         loadSettings()
         binding.saveButton.setOnClickListener { saveAndSync() }
@@ -67,7 +66,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.status.setText(R.string.config_syncing)
         lifecycleScope.launch {
-            val result = PhotoRepository(applicationContext).syncNow()
+            val result = container.repository.syncNow()
             binding.status.text = result.fold(
                 onSuccess = { count -> getString(R.string.config_sync_done, count) },
                 onFailure = { e -> getString(R.string.config_error, e.message) },

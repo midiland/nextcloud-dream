@@ -41,23 +41,30 @@ Fonctionnement d'ensemble :
 - **L'économiseur** télécharge chaque image **à la volée** (aperçu réduit par Nextcloud) avec **1 photo d'avance**.
 - **Le cache de secours** (LRU, 50 Mo par défaut) garde les dernières photos et prend le relais hors connexion.
 
+Les objets partagés passent par **`AppContainer`** (`context.container`) : un seul `SettingsManager` et un seul `PhotoRepository` par processus. Ne jamais instancier ces classes ailleurs. Les classes de `storage/` et de `photos/` reçoivent des `File` et des dépendances (pas de `Context`), ce qui les rend testables sur la JVM.
+
 | Fichier | Rôle |
 |---|---|
-| `NextcloudDreamApp.kt` | Timber : `DebugTree` en debug, `ReleaseTree` (INFO et plus, tag `NextcloudDream`) en release. Planifie `SyncWorker` si l'app est configurée |
-| `MainActivity.kt` | Écran de configuration, navigable au D-pad (viewBinding, `activity_main.xml`). Sert aussi de `settingsActivity` du dream |
-| `dream/NextcloudDreamService.kt` | Playlist de **clés** construite depuis l'index. `nextSlide()` : cache, sinon `fetchForDisplay`. En cas d'échec, `offlineUntil` (5 min) et repli sur les clés de la playlist déjà en cache. Préchargement via `async` dans `coroutineScope`. Relit l'index en fin de cycle, et aussi quand une photo n'a pas encore de métadonnées (cas du premier lancement) |
+| `NextcloudDreamApp.kt` | Porte `container`. Timber : `DebugTree` en debug, `ReleaseTree` (INFO et plus, tag `NextcloudDream`) en release. `ImageLoaderFactory` Coil sans cache mémoire ni disque. Planifie `SyncWorker` |
+| `AppContainer.kt` | `settings`, `repository` (lazy) ; extension `Context.container` |
+| `MainActivity.kt` | Écran de configuration, navigable au D-pad (viewBinding). Sert aussi de `settingsActivity` du dream |
+| `dream/NextcloudDreamService.kt` | Playlist de **clés** issue de l'index. `nextSlide()` gère `FetchResult` : Ready ; Unavailable → photo suivante (10 au plus) ; Offline → `offlineUntil` 5 min, puis cache. La boucle est protégée par try/catch (pause de 10 s). Photo illisible → `repository.evict`. Index relu au plus une fois par minute s'il manque des métadonnées |
 | `dream/PhotoPlaylist.kt` | Générique `PhotoPlaylist<T>`. Mélange par cycles. Les photos vues récemment (au moins 1) passent en fin du cycle suivant |
-| `ui/SlideshowView.kt` | Deux `Slide` superposées (fond flou + photo), fondu de 1,5 s. Paysage en recadrage plein écran, portrait/carré (ratio < 1,2) en entier sur fond flou. Coil sans cache mémoire ni disque. Callback `onFadeStart` pour l'overlay |
-| `ui/BlurredBackground.kt` | Flou maison sur une miniature de 48 px (`RenderEffect` n'existe qu'à partir de l'API 31, la Mi Box est en API 28) |
-| `network/NextcloudWebDavClient.kt` | PROPFIND (avec `oc:fileid`), `downloadPreview(fileId)` vers `index.php/core/preview?x=2560&y=1440&a=1&mimeFallback=false`, `readHead()` (Range), `download()` |
-| `network/PhotoRepository.kt` | `syncNow()` en 3 étapes : (1) index sauvé immédiatement avec les anciennes métadonnées, (2) EXIF des nouvelles photos sauvé toutes les 10, (3) préchargement. `fetchForDisplay()`. Aperçu serveur, sinon original réduit sur l'appareil. Un `Mutex` global empêche deux synchros simultanées |
-| `network/PlaceResolver.kt` | `Geocoder` Android (service Google Play), résultat mis en cache par zone d'environ 1 km. Appelé seulement pendant la synchro |
-| `cache/PhotoIndex.kt` | `IndexedPhoto(key, url, name, fileId, metadata?)` et `PhotoIndexStore` → `filesDir/photo_index.json` (écriture atomique). `metadata == null` = EXIF à relire à la prochaine synchro |
-| `cache/PhotoCacheManager.kt` | `filesDir/photos/<key>.jpg`, avec `key = sha256(url\|etag)[:32]`. `store()` atomique, `touch()` et `trim()` pour le LRU par date de modification, `retainOnly(keys)`, `hasRoomForDownload()` |
-| `cache/PhotoMetadata.kt` | Date et GPS EXIF : depuis les premiers 256 Ko d'un JPEG, ou depuis le fichier complet pour HEIC/PNG/WebP. Sérialisé dans l'index |
-| `cache/ImageResizer.kt` | Repli quand il n'y a pas d'aperçu serveur. `ImageDecoder` avec taille exacte ; si Android 9 renvoie « invalid scale », nouvel essai avec `setTargetSampleSize` + `createScaledBitmap`. `shouldShowWholeImage()` est la règle de cadrage partagée |
-| `data/SettingsManager.kt` | `EncryptedSharedPreferences`. Si la clé du Keystore est perdue, les préférences sont réinitialisées au lieu de faire planter l'app. `maxCacheMb` (50 Mo par défaut) = taille du cache de secours |
-| `worker/SyncWorker.kt` | Synchro périodique (WorkManager, contrainte réseau). `schedule()` utilise la politique UPDATE, `runNow()` |
+| `ui/SlideshowView.kt` | Deux `Slide` (fond flou + photo), fondu de 1,5 s avec `withLayer()`. Règle de cadrage dans `image/Framing` |
+| `ui/BlurredBackground.kt` | Flou maison sur 48 px (`RenderEffect` n'existe qu'à partir de l'API 31) |
+| `photos/PhotoRepository.kt` | `syncNow()` : (1) index sauvé tout de suite, (2) préchargement du cache de secours (borné par `maxCacheMb` / 1 Mo), (3) EXIF, index sauvé toutes les 30 s. `fetchForDisplay()` renvoie un `FetchResult` ; `evict()`. Aperçu serveur, repli sur l'original seulement si `HttpStatusException.isFileSpecific` |
+| `photos/IndexedPhoto.kt`, `PhotoMetadata.kt`, `FetchResult.kt` | Modèles. `PhotoMetadata` : JSON et `formattedDate()` |
+| `remote/NextcloudWebDavClient.kt` | PROPFIND (`oc:fileid`), `downloadPreview`, `readHead` (Range), `download`. Basic Auth en UTF-8. `HttpStatusException(code)` avec `isFileSpecific` et `isPermanent` |
+| `remote/MultistatusParser.kt` | Lecture de la réponse PROPFIND (`XmlPullParser` injecté, testé avec kxml2) |
+| `remote/ExifReader.kt` | Date et GPS EXIF (début du JPEG, ou fichier complet) |
+| `remote/PlaceResolver.kt` | `Geocoder` Android, avec cache par zone d'environ 1 km |
+| `storage/PhotoCacheManager.kt` | `directory/<key>.jpg`, avec `key = sha256(url\|etag)[:32]`. Fichiers temporaires **uniques** (`createTempFile`), fsync puis rename. LRU via `touch`/`trim`. `retainOnly` épargne les `.part` de moins d'une heure |
+| `storage/PhotoIndexStore.kt` | `AtomicFile` sur `photo_index.json` |
+| `image/Framing.kt`, `image/ImageResizer.kt` | Règle de cadrage partagée ; réduction sur l'appareil avec contournement Android 9 « invalid scale » |
+| `settings/SettingsManager.kt` | `EncryptedSharedPreferences` ouvertes une fois par processus (companion). Effacées seulement sur une erreur crypto répétée deux fois |
+| `worker/SyncWorker.kt` | WorkManager, contrainte réseau. `failure()` sur une erreur permanente, sinon `retry()` (3 au plus) |
+
+**Tests** (`app/src/test`, `./gradlew testDebugUnitTest`, 22 tests, aussi exécutés en CI) : `PhotoPlaylist`, `PhotoCacheManager` (dont une **valeur de référence de `keyFor`**, qui ne doit jamais changer), `PhotoIndexStore`, `PhotoMetadata`, `MultistatusParser`. `testOptions.unitTests.isReturnDefaultValues = true`. org.json et kxml2 sont ajoutés en `testImplementation`.
 
 ### Invariants à respecter
 
@@ -79,7 +86,7 @@ Fonctionnement d'ensemble :
 - **Version :** `app/build.gradle.kts` → `parseAppVersion()`. Format `[vV]xx.xx.xx[-rc.xx]`, `versionCode = MMmmpp` + `rc` (`99` pour une finale), et `0.0.0-dev` / `1` sans `-PappVersion`. Vérifié : `V1.02.03-rc.04` → `1020304`, `v1.2.3` → `1020399`, `V1.2` → erreur.
 - **Signature :** si `SIGNING_KEYSTORE_PATH` est défini (avec `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD`), le signingConfig `release` est utilisé, sinon la clé debug. Vérifié localement avec une keystore de test. En CI, les variables viennent des secrets GitHub (`SIGNING_KEYSTORE_BASE64` décodé dans `$RUNNER_TEMP`).
 - ⚠️ La Mi Box a actuellement une version signée avec la **clé debug locale**. Le premier APK de CI signé avec une autre clé imposera un `adb uninstall`, donc la configuration sera à ressaisir.
-- Le workflow n'a jamais été exécuté sur GitHub : le dossier n'est pas encore un dépôt git.
+- Le dépôt est `git@github.com:midiland/nextcloud-dream.git`. Le workflow n'a encore jamais été déclenché (aucun tag poussé).
 
 ## Versions (alignées sur les outils installés sur ce Mac)
 
@@ -137,6 +144,5 @@ Fonctionnement d'ensemble :
 - Repli hors connexion testé sur l'émulateur (`svc wifi disable`) : le diaporama bascule bien sur le cache.
 - Sur la box, 4 originaux non réduits restent dans le cache (avant le correctif « invalid scale »). Ils seront évincés par le LRU.
 - HEIC, fluidité et mémoire n'ont pas été vérifiés sur la Mi Box réelle.
-- Pas encore de tests unitaires. `PhotoPlaylist` est du Kotlin pur et peut être testé avec JUnit.
 - Icône et bannière TV provisoires (vecteurs simples dans `res/drawable`).
 - Logs en release : `ReleaseTree` (INFO et au-dessus, tag `NextcloudDream`) → `adb logcat -s NextcloudDream:V`.

@@ -4,7 +4,6 @@ import android.app.Application
 import android.util.Log
 import coil.ImageLoader
 import coil.ImageLoaderFactory
-import com.nextclouddream.data.SettingsManager
 import com.nextclouddream.worker.SyncWorker
 import timber.log.Timber
 
@@ -14,11 +13,13 @@ import timber.log.Timber
  */
 class NextcloudDreamApp : Application(), ImageLoaderFactory {
 
+    val container by lazy { AppContainer(this) }
+
     override fun onCreate() {
         super.onCreate()
         // Logs visibles avec : adb logcat --pid=$(adb shell pidof com.nextclouddream)
         Timber.plant(if (BuildConfig.DEBUG) Timber.DebugTree() else ReleaseTree())
-        if (SettingsManager(this).isConfigured) {
+        if (container.settings.isConfigured) {
             SyncWorker.schedule(this)
         }
     }

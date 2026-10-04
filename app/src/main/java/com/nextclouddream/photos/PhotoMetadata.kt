@@ -1,17 +1,14 @@
-package com.nextclouddream.cache
+package com.nextclouddream.photos
 
-import androidx.exifinterface.media.ExifInterface
 import org.json.JSONObject
-import timber.log.Timber
-import java.io.File
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 /**
  * Informations affichées sous la photo. Extraites de l'EXIF de l'original
- * pendant la synchro (les aperçus et versions réduites n'ont plus d'EXIF),
- * puis conservées dans l'index des photos ([PhotoIndexStore]).
+ * pendant la synchro (voir ExifReader ; les aperçus et versions réduites n'ont
+ * plus d'EXIF), puis conservées dans l'index des photos (PhotoIndexStore).
  */
 data class PhotoMetadata(
     /** Date EXIF brute, format "yyyy:MM:dd HH:mm:ss". */
@@ -56,30 +53,5 @@ data class PhotoMetadata(
                 longitude = if (obj.has(KEY_LON)) obj.getDouble(KEY_LON) else null,
                 place = obj.optString(KEY_PLACE).ifEmpty { null },
             )
-
-        /** EXIF d'un fichier complet (JPEG, HEIC, PNG, WebP). */
-        fun readExif(original: File): PhotoMetadata = readExif(original.name) { ExifInterface(original) }
-
-        /** EXIF à partir du début d'un JPEG (l'EXIF est toujours en tête de fichier). */
-        fun readExif(name: String, jpegHead: ByteArray): PhotoMetadata =
-            readExif(name) { ExifInterface(jpegHead.inputStream()) }
-
-        /** Lit la date de prise de vue et les coordonnées GPS. */
-        private fun readExif(name: String, open: () -> ExifInterface): PhotoMetadata =
-            try {
-                val exif = open()
-                val date = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
-                    ?: exif.getAttribute(ExifInterface.TAG_DATETIME)
-                // (0, 0) = GPS présent mais vide sur certains téléphones : on l'ignore
-                val latLong = exif.latLong?.takeUnless { it[0] == 0.0 && it[1] == 0.0 }
-                PhotoMetadata(
-                    dateTaken = date?.takeUnless { it.isBlank() || it.startsWith("0000") },
-                    latitude = latLong?.get(0),
-                    longitude = latLong?.get(1),
-                )
-            } catch (e: Exception) {
-                Timber.w(e, "EXIF illisible : %s", name)
-                PhotoMetadata()
-            }
     }
 }

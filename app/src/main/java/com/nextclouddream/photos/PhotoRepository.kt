@@ -1,12 +1,13 @@
-package com.nextclouddream.network
+package com.nextclouddream.photos
 
-import android.content.Context
-import com.nextclouddream.cache.ImageResizer
-import com.nextclouddream.cache.IndexedPhoto
-import com.nextclouddream.cache.PhotoCacheManager
-import com.nextclouddream.cache.PhotoIndexStore
-import com.nextclouddream.cache.PhotoMetadata
-import com.nextclouddream.data.SettingsManager
+import com.nextclouddream.image.ImageResizer
+import com.nextclouddream.remote.ExifReader
+import com.nextclouddream.remote.HttpStatusException
+import com.nextclouddream.remote.NextcloudWebDavClient
+import com.nextclouddream.remote.PlaceResolver
+import com.nextclouddream.settings.SettingsManager
+import com.nextclouddream.storage.PhotoCacheManager
+import com.nextclouddream.storage.PhotoIndexStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -17,18 +18,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import timber.log.Timber
 import java.io.File
 
-/** Résultat d'une demande de photo à afficher. */
-sealed interface FetchResult {
-    /** Photo prête, en cache local. */
-    class Ready(val file: File) : FetchResult
-
-    /** Cette photo-là est indisponible (supprimée, aperçu impossible…) : passer à la suivante. */
-    data object Unavailable : FetchResult
-
-    /** Serveur injoignable ou stockage plein : basculer sur le cache de secours un moment. */
-    data object Offline : FetchResult
-}
-
 /**
  * Point d'accès unique aux photos, en mode hybride :
  *  - la synchro ne télécharge que la liste des photos et leurs métadonnées (index)
@@ -37,14 +26,15 @@ sealed interface FetchResult {
  *  - les dernières photos vues restent dans un cache de secours plafonné,
  *    qui permet de continuer hors connexion
  *
- * Utilisé par l'économiseur d'écran, SyncWorker et l'écran de configuration.
+ * Une seule instance par processus (AppContainer), partagée par l'économiseur,
+ * SyncWorker et l'écran de configuration.
  */
-class PhotoRepository(context: Context) {
-
-    private val settings = SettingsManager(context)
-    private val cache = PhotoCacheManager(context)
-    private val indexStore = PhotoIndexStore(context)
-    private val placeResolver = PlaceResolver(context)
+class PhotoRepository(
+    private val settings: SettingsManager,
+    private val cache: PhotoCacheManager,
+    private val indexStore: PhotoIndexStore,
+    private val placeResolver: PlaceResolver,
+) {
 
     /** Photos connues à la dernière synchro (disponible hors connexion). */
     suspend fun getIndex(): List<IndexedPhoto> = withContext(Dispatchers.IO) { indexStore.load() }
@@ -204,7 +194,7 @@ class PhotoRepository(context: Context) {
         try {
             val url = photo.url.toHttpUrl()
             if (NextcloudWebDavClient.isJpeg(photo.name)) {
-                PhotoMetadata.readExif(photo.name, client.readHead(url, EXIF_HEAD_BYTES))
+                ExifReader.read(photo.name, client.readHead(url, EXIF_HEAD_BYTES))
             } else if (!NextcloudWebDavClient.mayHaveExif(photo.name)) {
                 PhotoMetadata()
             } else if (!cache.hasRoomForDownload()) {
@@ -214,7 +204,7 @@ class PhotoRepository(context: Context) {
                 val original = cache.tempFileFor(photo.key, "exif")
                 try {
                     client.download(url, original)
-                    PhotoMetadata.readExif(original)
+                    ExifReader.read(original)
                 } finally {
                     original.delete()
                 }
