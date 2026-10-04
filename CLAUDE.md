@@ -50,7 +50,9 @@ Les objets partagés passent par **`AppContainer`** (`context.container`) : un s
 | `NextcloudDreamApp.kt` | Porte `container`. Timber : `DebugTree` en debug, `ReleaseTree` (INFO et plus, tag `NextcloudDream`) en release. `ImageLoaderFactory` Coil sans cache mémoire ni disque. Planifie `SyncWorker` |
 | `AppContainer.kt` | `settings`, `repository` (lazy) ; extension `Context.container` |
 | `MainActivity.kt` | Écran de configuration, navigable au D-pad (viewBinding). Sert aussi de `settingsActivity` du dream |
-| `dream/NextcloudDreamService.kt` | Playlist de **clés** issue de l'index. `nextSlide()` gère `FetchResult` : Ready ; Unavailable → photo suivante (10 au plus) ; Offline → `offlineUntil` 5 min, puis cache. La boucle est protégée par try/catch (pause de 10 s). Photo illisible → `repository.evict`. Index relu au plus une fois par minute s'il manque des métadonnées |
+| `dream/NextcloudDreamService.kt` | Cycle de vie, UI (messages, horloge, overlay) et boucle d'affichage avec 1 photo d'avance. Boucle protégée par try/catch (pause de 10 s). Photo illisible → `repository.evict` + `slides.remove` |
+| `dream/SlideSource.kt` | Choix de la photo suivante, indépendant d'Android (`PhotoSource` et horloge injectées). Playlist de **clés**. `FetchResult` : Ready ; Unavailable → photo suivante (10 au plus) ; Offline → `offlineUntil` 5 min, puis cache. Hors ligne, **jusqu'à 2 cycles** sont parcourus pour trouver une photo en cache (1 cycle ne suffit pas : bug trouvé par les tests). Index relu au plus une fois par minute s'il manque des métadonnées |
+| `photos/PhotoSource.kt` | Interface implémentée par `PhotoRepository`, pour tester `SlideSource` avec une fausse source |
 | `dream/PhotoPlaylist.kt` | Générique `PhotoPlaylist<T>`. Mélange par cycles. Les photos vues récemment (au moins 1) passent en fin du cycle suivant |
 | `ui/SlideshowView.kt` | Deux `Slide` (fond flou + photo), fondu de 1,5 s avec `withLayer()`. Règle de cadrage dans `image/Framing` |
 | `ui/BlurredBackground.kt` | Flou maison sur 48 px (`RenderEffect` n'existe qu'à partir de l'API 31) |
@@ -63,10 +65,12 @@ Les objets partagés passent par **`AppContainer`** (`context.container`) : un s
 | `storage/PhotoCacheManager.kt` | `directory/<key>.jpg`, avec `key = sha256(url\|etag)[:32]`. Fichiers temporaires **uniques** (`createTempFile`), fsync puis rename. LRU via `touch`/`trim`. `retainOnly` épargne les `.part` de moins d'une heure |
 | `storage/PhotoIndexStore.kt` | `AtomicFile` sur `photo_index.json` |
 | `image/Framing.kt`, `image/ImageResizer.kt` | Règle de cadrage partagée ; réduction sur l'appareil avec contournement Android 9 « invalid scale » |
-| `settings/SettingsManager.kt` | `EncryptedSharedPreferences` ouvertes une fois par processus (companion). Effacées seulement sur une erreur crypto répétée deux fois |
+| `settings/SettingsManager.kt` | `SharedPreferences` classiques (`nextcloud_dream_prefs`). Seul le mot de passe est chiffré (`app_password_encrypted`), via `KeystoreCipher`, puis gardé déchiffré en mémoire |
+| `settings/KeystoreCipher.kt` | AES-256-GCM, clé `nextcloud_dream_app_password` dans l'Android Keystore. Format : Base64(IV de 12 octets + texte chiffré). `decrypt` renvoie null si la clé est perdue : seul le mot de passe est alors à ressaisir |
+| `settings/LegacySettingsMigration.kt` | Migration unique depuis l'ancien `nextcloud_dream_secure_prefs` (EncryptedSharedPreferences), puis suppression du fichier et de la clé `_androidx_security_master_key_`. **Seule raison d'être de la dépendance `security-crypto`** : à retirer avec elle une fois tous les appareils migrés (émulateur et Mi Box migrés le 2026-10-04) |
 | `worker/SyncWorker.kt` | WorkManager, contrainte réseau. `failure()` sur une erreur permanente, sinon `retry()` (3 au plus) |
 
-**Tests** (`app/src/test`, `./gradlew testDebugUnitTest`, 22 tests, aussi exécutés en CI) : `PhotoPlaylist`, `PhotoCacheManager` (dont une **valeur de référence de `keyFor`**, qui ne doit jamais changer), `PhotoIndexStore`, `PhotoMetadata`, `MultistatusParser`. `testOptions.unitTests.isReturnDefaultValues = true`. org.json et kxml2 sont ajoutés en `testImplementation`.
+**Tests** (`app/src/test`, `./gradlew testDebugUnitTest`, 30 tests, aussi exécutés en CI) : `PhotoPlaylist`, `SlideSource` (en ligne, indisponible, hors ligne avec horloge simulée, cache sans index, métadonnées), `PhotoCacheManager` (dont une **valeur de référence de `keyFor`**, qui ne doit jamais changer), `PhotoIndexStore`, `PhotoMetadata`, `MultistatusParser`. `testOptions.unitTests.isReturnDefaultValues = true`. org.json et kxml2 sont ajoutés en `testImplementation`.
 
 ### Invariants à respecter
 

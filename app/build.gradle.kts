@@ -107,7 +107,8 @@ dependencies {
     // Rafraîchissement périodique du cache
     implementation("androidx.work:work-runtime-ktx:2.10.0")
 
-    // Stockage chiffré des identifiants
+    // Uniquement pour migrer les réglages des premières versions (LegacySettingsMigration) ;
+    // le mot de passe est désormais chiffré directement avec l'Android Keystore
     implementation("androidx.security:security-crypto:1.1.0")
 
     // Logs

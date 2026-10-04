@@ -3,21 +3,30 @@ package com.nextclouddream.settings
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
-import timber.log.Timber
-import java.io.IOException
-import java.security.GeneralSecurityException
 
 /**
- * Réglages de l'application, stockés chiffrés (clé AES dans l'Android Keystore).
- * Le token d'application Nextcloud n'est jamais écrit en clair sur le disque.
+ * Réglages de l'application.
+ *
+ * Seul le mot de passe d'application est secret : il est chiffré par [KeystoreCipher]
+ * (clé AES dans l'Android Keystore). Les autres réglages (URL, identifiant, durées…)
+ * sont dans des préférences classiques, privées à l'app et exclues des sauvegardes
+ * (allowBackup="false").
+ *
+ * Une seule instance par processus (AppContainer).
  */
 class SettingsManager(context: Context) {
 
-    // Ouvertes une seule fois par processus : la création (Keystore + Tink) est lente
-    // sur la Mi Box et n'est pas sûre en accès concurrent (économiseur + worker)
-    private val prefs: SharedPreferences = sharedPrefs(context.applicationContext)
+    private val prefs: SharedPreferences =
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val cipher = KeystoreCipher(KEYSTORE_ALIAS)
+
+    // Mot de passe déchiffré gardé en mémoire : évite un appel au Keystore à chaque photo
+    @Volatile
+    private var decryptedPassword: String? = null
+
+    init {
+        LegacySettingsMigration.migrateIfNeeded(context.applicationContext, this)
+    }
 
     /** URL de base du serveur, sans slash final (ex. https://cloud.exemple.fr). */
     var serverUrl: String
@@ -30,8 +39,17 @@ class SettingsManager(context: Context) {
 
     /** Mot de passe d'application Nextcloud (Paramètres → Sécurité), pas le mot de passe principal. */
     var appPassword: String
-        get() = prefs.getString(KEY_APP_PASSWORD, "").orEmpty()
-        set(value) = prefs.edit { putString(KEY_APP_PASSWORD, value.trim()) }
+        get() = decryptedPassword
+            ?: prefs.getString(KEY_APP_PASSWORD_ENCRYPTED, null)?.let(cipher::decrypt).orEmpty()
+                .also { decryptedPassword = it }
+        set(value) {
+            val password = value.trim()
+            prefs.edit {
+                if (password.isEmpty()) remove(KEY_APP_PASSWORD_ENCRYPTED)
+                else putString(KEY_APP_PASSWORD_ENCRYPTED, cipher.encrypt(password))
+            }
+            decryptedPassword = password
+        }
 
     /** Dossier à afficher, relatif à la racine de l'utilisateur (ex. /Photos/ScreenSaver). */
     var folderPath: String
@@ -64,54 +82,12 @@ class SettingsManager(context: Context) {
         get() = serverUrl.isNotBlank() && username.isNotBlank() && appPassword.isNotBlank()
 
     companion object {
-        private const val PREFS_NAME = "nextcloud_dream_secure_prefs"
-
-        @Volatile
-        private var instance: SharedPreferences? = null
-
-        private fun sharedPrefs(context: Context): SharedPreferences =
-            instance ?: synchronized(this) {
-                instance ?: openEncryptedPrefs(context).also { instance = it }
-            }
-
-        /**
-         * Ouvre les préférences chiffrées. Elles ne sont effacées que si la clé du Keystore
-         * est réellement perdue (erreur de chiffrement deux fois de suite, ex. après une
-         * restauration) : une erreur passagère ne doit jamais effacer les identifiants.
-         */
-        private fun openEncryptedPrefs(context: Context): SharedPreferences {
-            var lastError: Exception? = null
-            repeat(2) {
-                try {
-                    return createEncryptedPrefs(context)
-                } catch (e: GeneralSecurityException) {
-                    lastError = e
-                } catch (e: IOException) {
-                    // Inclut InvalidProtocolBufferException (keyset Tink illisible)
-                    lastError = e
-                }
-            }
-            Timber.e(lastError, "Préférences chiffrées illisibles (clé perdue ?), réinitialisation")
-            context.deleteSharedPreferences(PREFS_NAME)
-            return createEncryptedPrefs(context)
-        }
-
-        private fun createEncryptedPrefs(context: Context): SharedPreferences {
-            val masterKey = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            return EncryptedSharedPreferences.create(
-                context,
-                PREFS_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-            )
-        }
+        private const val PREFS_NAME = "nextcloud_dream_prefs"
+        private const val KEYSTORE_ALIAS = "nextcloud_dream_app_password"
 
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_USERNAME = "username"
-        private const val KEY_APP_PASSWORD = "app_password"
+        private const val KEY_APP_PASSWORD_ENCRYPTED = "app_password_encrypted"
         private const val KEY_FOLDER_PATH = "folder_path"
         private const val KEY_SLIDE_INTERVAL = "slide_interval_s"
         private const val KEY_SHOW_CLOCK = "show_clock"

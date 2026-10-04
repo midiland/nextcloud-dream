@@ -34,13 +34,13 @@ class PhotoRepository(
     private val cache: PhotoCacheManager,
     private val indexStore: PhotoIndexStore,
     private val placeResolver: PlaceResolver,
-) {
+) : PhotoSource {
 
     /** Photos connues à la dernière synchro (disponible hors connexion). */
-    suspend fun getIndex(): List<IndexedPhoto> = withContext(Dispatchers.IO) { indexStore.load() }
+    override suspend fun getIndex(): List<IndexedPhoto> = withContext(Dispatchers.IO) { indexStore.load() }
 
     /** Photos présentes dans le cache de secours. */
-    suspend fun getCachedPhotos(): List<File> = withContext(Dispatchers.IO) { cache.listPhotos() }
+    override suspend fun getCachedPhotos(): List<File> = withContext(Dispatchers.IO) { cache.listPhotos() }
 
     /**
      * Met à jour l'index depuis Nextcloud, puis remplit le cache de secours s'il est
@@ -116,7 +116,7 @@ class PhotoRepository(
      * Distingue une photo indisponible (on passe à la suivante) d'un serveur injoignable
      * (l'économiseur bascule sur le cache de secours).
      */
-    suspend fun fetchForDisplay(photo: IndexedPhoto): FetchResult = withContext(Dispatchers.IO) {
+    override suspend fun fetchForDisplay(photo: IndexedPhoto): FetchResult = withContext(Dispatchers.IO) {
         val cached = cache.fileFor(photo.key)
         if (cached.exists()) {
             cache.touch(cached)

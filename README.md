@@ -11,7 +11,7 @@ A screensaver for **Android TV** that shows a slideshow of the photos in a folde
 - Random order, without a photo coming back too soon.
 - **No limit on the number of photos:** they are downloaded on the fly, as previews resized by the server.
 - **Keeps working offline** thanks to a fallback cache of the most recently shown photos.
-- Credentials are stored encrypted.
+- The Nextcloud app password is encrypted with a key kept in the Android Keystore.
 
 Tested on a Mi Box S (Android 9) and an Android TV emulator (Android 12). Requires **Android 9** or later.
 
@@ -318,13 +318,15 @@ app/src/main/java/com/nextclouddream/
 ├── AppContainer.kt                  process-wide instances (settings, repository)
 ├── MainActivity.kt                  configuration screen
 ├── dream/
-│   ├── NextcloudDreamService.kt     the screensaver: slideshow, 1 photo ahead, offline mode
+│   ├── NextcloudDreamService.kt     the screensaver: lifecycle, display, 1 photo ahead
+│   ├── SlideSource.kt               next photo: online, or from the fallback cache when offline
 │   └── PhotoPlaylist.kt             random order without close repeats
 ├── ui/
 │   ├── SlideshowView.kt             display, framing, cross-fade
 │   └── BlurredBackground.kt         blurred background for portrait photos
 ├── photos/
 │   ├── PhotoRepository.kt           index sync, on-the-fly download, fallback logic
+│   ├── PhotoSource.kt               what the screensaver needs from the repository
 │   ├── IndexedPhoto.kt, PhotoMetadata.kt, FetchResult.kt   models
 ├── remote/
 │   ├── NextcloudWebDavClient.kt     WebDAV, Nextcloud previews, partial reads
@@ -337,13 +339,16 @@ app/src/main/java/com/nextclouddream/
 ├── image/
 │   ├── Framing.kt                   crop vs. whole-image rule
 │   └── ImageResizer.kt              on-device resizing (when no server preview)
-├── settings/SettingsManager.kt      encrypted settings
+├── settings/
+│   ├── SettingsManager.kt           settings (app password encrypted)
+│   ├── KeystoreCipher.kt            AES-GCM with an Android Keystore key
+│   └── LegacySettingsMigration.kt   one-time migration from older versions
 └── worker/SyncWorker.kt             periodic background sync
 ```
 
 Unit tests (JVM, no emulator needed) are in `app/src/test`: `./gradlew testDebugUnitTest`. They also run in CI before each release build.
 
-Dependencies: Coil, OkHttp, WorkManager, AndroidX Security (EncryptedSharedPreferences), ExifInterface, Coroutines, Timber.
+Dependencies: Coil, OkHttp, WorkManager, ExifInterface, Coroutines, Timber (and AndroidX Security, only to migrate settings from older versions).
 
 Code comments are in French.
 
