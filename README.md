@@ -95,7 +95,7 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 
 ## 4. Configure
 
-1. Open **Nextcloud Dream** from the home screen, or with `adb shell am start -n com.nextclouddream/.MainActivity`.
+1. Open **Nextcloud Dream** from the home screen, or with `adb shell am start -n fr.midiland.nextclouddream/.MainActivity`.
 2. Fill in the fields:
    - server URL
    - username
@@ -168,7 +168,7 @@ On an Apple Silicon Mac, Android TV 9 (API 28) images only exist for x86. Use an
 - **⌨️ With ADB:**
 
   ```bash
-  adb shell am start -n com.nextclouddream/.MainActivity
+  adb shell am start -n fr.midiland.nextclouddream/.MainActivity
   ```
 
 ### Typing text into a field
@@ -198,7 +198,7 @@ On an Apple Silicon Mac, Android TV 9 (API 28) images only exist for x86. Use an
   ```bash
   # Make it the active screensaver
   adb shell settings put secure screensaver_enabled 1
-  adb shell settings put secure screensaver_components com.nextclouddream/.dream.NextcloudDreamService
+  adb shell settings put secure screensaver_components fr.midiland.nextclouddream/.dream.NextcloudDreamService
 
   # Start it now — emulator
   adb shell am start -n com.android.systemui/.Somnambulator
@@ -228,7 +228,7 @@ Press any key on the remote to exit the screensaver.
 
   ```bash
   adb logcat -s NextcloudDream:V                              # release build
-  adb logcat --pid=$(adb shell pidof com.nextclouddream)      # debug build (everything)
+  adb logcat --pid=$(adb shell pidof fr.midiland.nextclouddream)      # debug build (everything)
   ```
 
   Example at startup (log messages are in French):
@@ -255,8 +255,8 @@ Press any key on the remote to exit the screensaver.
 - **⌨️ With ADB** (debug build only):
 
   ```bash
-  adb shell "run-as com.nextclouddream ls -la files/photos"            # fallback cache
-  adb shell "run-as com.nextclouddream cat files/photo_index.json"     # photo list + date/GPS/place
+  adb shell "run-as fr.midiland.nextclouddream ls -la files/photos"            # fallback cache
+  adb shell "run-as fr.midiland.nextclouddream cat files/photo_index.json"     # photo list + date/GPS/place
   ```
 
 ### Starting from scratch
@@ -266,10 +266,10 @@ Press any key on the remote to exit the screensaver.
 
   ```bash
   # Debug: clear the cache and the index, keep the configuration (full resync on next start)
-  adb shell "run-as com.nextclouddream sh -c 'rm -rf files/photos/* files/photo_index.json'"
+  adb shell "run-as fr.midiland.nextclouddream sh -c 'rm -rf files/photos/* files/photo_index.json'"
 
   # Any build: erase all data, configuration included (same as "Clear data")
-  adb shell pm clear com.nextclouddream
+  adb shell pm clear fr.midiland.nextclouddream
   ```
 
 ### Simulating a network outage
@@ -313,7 +313,7 @@ Press any key on the remote to exit the screensaver.
 ## Code structure
 
 ```
-app/src/main/java/com/nextclouddream/
+app/src/main/java/fr/midiland/nextclouddream/
 ├── NextcloudDreamApp.kt             initialization (logs, image loader, periodic sync)
 ├── AppContainer.kt                  process-wide instances (settings, repository)
 ├── MainActivity.kt                  configuration screen
@@ -401,7 +401,7 @@ Android only installs an update if it is signed with the same key as the install
 
 3. Store `release.keystore` and its password somewhere safe, outside the repository. If they are lost, the app can no longer be updated in place.
 
-APKs built locally without these secrets are signed with your debug key. Moving from a local build to a CI build (or back) therefore requires `adb uninstall com.nextclouddream` first.
+APKs built locally without these secrets are signed with your debug key. Moving from a local build to a CI build (or back) therefore requires `adb uninstall fr.midiland.nextclouddream` first.
 
 The workflow runs on `ubuntu-latest`, which ships with the Android SDK; it only installs JDK 17.
 

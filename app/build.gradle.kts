@@ -28,11 +28,11 @@ fun parseAppVersion(tag: String?): Pair<String, Int> {
 val releaseKeystore: String? = System.getenv("SIGNING_KEYSTORE_PATH")
 
 android {
-    namespace = "com.nextclouddream"
+    namespace = "fr.midiland.nextclouddream"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.nextclouddream"
+        applicationId = "fr.midiland.nextclouddream"
         // Android 9 (Pie) : Mi Box S et décodage HEIF natif
         minSdk = 28
         targetSdk = 36

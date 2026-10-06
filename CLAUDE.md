@@ -21,7 +21,7 @@ Pour lancer l'économiseur sur un appareil :
 
 ```bash
 adb shell settings put secure screensaver_enabled 1
-adb shell settings put secure screensaver_components com.nextclouddream/.dream.NextcloudDreamService
+adb shell settings put secure screensaver_components fr.midiland.nextclouddream/.dream.NextcloudDreamService
 adb shell am start -n com.android.systemui/.Somnambulator   # démarrage immédiat
 adb shell dumpsys dreams | grep mCurrentDreamName           # vérifier que c'est notre service
 ```
@@ -29,14 +29,14 @@ adb shell dumpsys dreams | grep mCurrentDreamName           # vérifier que c'es
 Pour consulter les logs (version debug uniquement), les screenshots et le cache :
 
 ```bash
-adb logcat --pid=$(adb shell pidof com.nextclouddream)
+adb logcat --pid=$(adb shell pidof fr.midiland.nextclouddream)
 adb exec-out screencap -p > shot.png
-adb shell "run-as com.nextclouddream ls -la files/photos"    # mettre la commande run-as entre guillemets
+adb shell "run-as fr.midiland.nextclouddream ls -la files/photos"    # mettre la commande run-as entre guillemets
 ```
 
 ## Architecture — mode hybride
 
-Package : `com.nextclouddream` (dans `app/src/main/java/com/nextclouddream/`).
+Package : `fr.midiland.nextclouddream` (dans `app/src/main/java/fr/midiland/nextclouddream/`).
 
 Fonctionnement d'ensemble :
 - **La synchro** (`SyncWorker` toutes les 6 h, ou l'écran de config) ne télécharge que l'**index** : la liste WebDAV et les métadonnées EXIF. Elle remplit ensuite le cache de secours jusqu'à 20 photos.
@@ -92,6 +92,7 @@ Les objets partagés passent par **`AppContainer`** (`context.container`) : un s
 - **Version :** `app/build.gradle.kts` → `parseAppVersion()`. Format `[vV]xx.xx.xx[-rc.xx]`, `versionCode = MMmmpp` + `rc` (`99` pour une finale), et `0.0.0-dev` / `1` sans `-PappVersion`. Vérifié : `V1.02.03-rc.04` → `1020304`, `v1.2.3` → `1020399`, `V1.2` → erreur.
 - **Signature :** si `SIGNING_KEYSTORE_PATH` est défini (avec `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD`), le signingConfig `release` est utilisé, sinon la clé debug. Vérifié localement avec une keystore de test. En CI, les variables viennent des secrets GitHub (`SIGNING_KEYSTORE_BASE64` décodé dans `$RUNNER_TEMP`).
 - ⚠️ La Mi Box a actuellement une version signée avec la **clé debug locale**. Le premier APK de CI signé avec une autre clé imposera un `adb uninstall`, donc la configuration sera à ressaisir.
+- ⚠️ Le package a été renommé de `com.nextclouddream` en `fr.midiland.nextclouddream` le 2026-10-06. Pour Android c'est une **application différente** : sur l'émulateur et sur la Mi Box il faut faire `adb uninstall com.nextclouddream` (l'ancienne reste installée et visible sinon), ressaisir la configuration, et repointer `screensaver_components` sur le nouveau composant. Le cache et l'index repartent de zéro. La migration `LegacySettingsMigration` ne sert plus à rien sur les nouveaux appareils : ses préférences sont lues dans le répertoire du nouveau package, qui est vide.
 - Le dépôt est `git@github.com:midiland/nextcloud-dream.git`. Le workflow n'a encore jamais été déclenché (aucun tag poussé).
 
 ## Versions (alignées sur les outils installés sur ce Mac)

@@ -5,7 +5,7 @@
     android:background="@android:color/black">
 
     <!-- Diaporama plein écran (deux ImageView superposées pour le fondu) -->
-    <com.nextclouddream.ui.SlideshowView
+    <fr.midiland.nextclouddream.ui.SlideshowView
         android:id="@+id/slideshow"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
