@@ -1,5 +1,5 @@
 # Build de l'APK release à la création d'un tag de version, puis publication
-# dans une GitHub Release.
+# dans une GitHub Release, sous le nom constant nextcloud-dream.apk.
 #
 # Tags acceptés : V1.02.03, V1.002.003 (ou avec un v minuscule)
 #   git tag V1.00.00 && git push origin V1.00.00
@@ -66,16 +66,13 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease -PappVersion="$GITHUB_REF_NAME"
 
+      # Nom volontairement sans version : c'est ce qui rend l'URL de
+      # téléchargement constante (releases/latest/download/nextcloud-dream.apk).
       - name: Renommage de l'APK
-        id: apk
-        run: |
-          version="${GITHUB_REF_NAME#[vV]}"
-          path="nextcloud-dream-$version.apk"
-          cp app/build/outputs/apk/release/app-release.apk "$path"
-          echo "path=$path" >> "$GITHUB_OUTPUT"
+        run: cp app/build/outputs/apk/release/app-release.apk nextcloud-dream.apk
 
       - name: Publication de la GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.apk.outputs.path }}
+          files: nextcloud-dream.apk
           generate_release_notes: true

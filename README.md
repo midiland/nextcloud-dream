@@ -1,6 +1,6 @@
 # Nextcloud Dream
 
-[![Download the latest APK](https://img.shields.io/github/v/release/midiland/nextcloud-dream?style=for-the-badge&logo=android&logoColor=white&label=Download%20APK&color=0082c9)](https://github.com/midiland/nextcloud-dream/releases/latest)
+[![Download the latest APK](https://img.shields.io/github/v/release/midiland/nextcloud-dream?style=for-the-badge&logo=android&logoColor=white&label=Download%20APK&color=0082c9)](https://github.com/midiland/nextcloud-dream/releases/latest/download/nextcloud-dream.apk)
 
 A screensaver for **Android TV** that shows a slideshow of the photos in a folder on your **Nextcloud** server.
 
@@ -61,8 +61,15 @@ Supported formats: JPG, JPEG, PNG, HEIC/HEIF, WebP.
 
 ## 2. Get the APK
 
-The quickest way is to download `nextcloud-dream-<version>.apk` from the
-**[latest release](https://github.com/midiland/nextcloud-dream/releases/latest)**, and skip to step 3.
+The quickest way is to download the APK from the latest release and skip to step 3. The asset is always
+named `nextcloud-dream.apk`, so this URL always points at the newest version:
+
+```bash
+curl -LO https://github.com/midiland/nextcloud-dream/releases/latest/download/nextcloud-dream.apk
+```
+
+The [releases page](https://github.com/midiland/nextcloud-dream/releases/latest) lists the version number and
+the release notes.
 
 ### Building it yourself
 
@@ -97,7 +104,7 @@ Both builds are signed with the same key, so you can switch between them with `a
 
 ```bash
 adb connect 192.168.1.XX:5555      # accept the authorization prompt shown on the TV
-adb install -r nextcloud-dream-<version>.apk               # APK downloaded from the release
+adb install -r nextcloud-dream.apk                         # APK downloaded from the release
 adb install -r app/build/outputs/apk/release/app-release.apk   # APK built locally
 ```
 
@@ -370,7 +377,9 @@ Each version tag pushed to GitHub triggers `.github/workflows/release.yml`, whic
 git tag V1.00.00 && git push origin V1.00.00
 ```
 
-The release then contains `nextcloud-dream-<version>.apk`, for example `nextcloud-dream-1.00.00.apk`.
+The release then contains the APK as `nextcloud-dream.apk`. The name carries no version on purpose: that is
+what makes `releases/latest/download/nextcloud-dream.apk` a permanent link to the newest release. The version
+itself is in the release title, in the tag, and in the app (`adb shell dumpsys package fr.midiland.nextclouddream | grep versionName`).
 
 ### Version numbers
 
