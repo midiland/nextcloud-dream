@@ -1,5 +1,7 @@
 # Nextcloud Dream
 
+[![Download the latest APK](https://img.shields.io/github/v/release/midiland/nextcloud-dream?style=for-the-badge&logo=android&logoColor=white&label=Download%20APK&color=0082c9)](https://github.com/midiland/nextcloud-dream/releases/latest)
+
 A screensaver for **Android TV** that shows a slideshow of the photos in a folder on your **Nextcloud** server.
 
 - Cross-fade between photos. Display time is configurable (20 s by default).
@@ -57,7 +59,12 @@ Supported formats: JPG, JPEG, PNG, HEIC/HEIF, WebP.
 >
 > If the folder is **shared** with the account used on the TV box, it often appears at a different path for that account (at the root by default). The **Test connection** button lets you check.
 
-## 2. Build
+## 2. Get the APK
+
+The quickest way is to download `nextcloud-dream-<version>.apk` from the
+**[latest release](https://github.com/midiland/nextcloud-dream/releases/latest)**, and skip to step 3.
+
+### Building it yourself
 
 Requirement: [Android Studio](https://developer.android.com/studio), which provides the JDK and the Android SDK.
 
@@ -90,7 +97,8 @@ Both builds are signed with the same key, so you can switch between them with `a
 
 ```bash
 adb connect 192.168.1.XX:5555      # accept the authorization prompt shown on the TV
-adb install -r app/build/outputs/apk/release/app-release.apk
+adb install -r nextcloud-dream-<version>.apk               # APK downloaded from the release
+adb install -r app/build/outputs/apk/release/app-release.apk   # APK built locally
 ```
 
 ## 4. Configure
