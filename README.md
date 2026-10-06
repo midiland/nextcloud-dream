@@ -359,25 +359,24 @@ Each version tag pushed to GitHub triggers `.github/workflows/release.yml`, whic
 ### Publishing a version
 
 ```bash
-git tag V1.00.00-rc.01 && git push origin V1.00.00-rc.01   # release candidate (pre-release)
-git tag V1.00.00 && git push origin V1.00.00               # final release
+git tag V1.00.00 && git push origin V1.00.00
 ```
 
-The release then contains `nextcloud-dream-<version>.apk`, for example `nextcloud-dream-1.00.00-rc.01.apk`.
+The release then contains `nextcloud-dream-<version>.apk`, for example `nextcloud-dream-1.00.00.apk`.
 
 ### Version numbers
 
-The tag sets the app version. Accepted formats are `Vxx.xx.xx` and `Vxx.xx.xx-rc.xx`, with 1 or 2 digits per part and an optional lowercase `v`. Any other tag fails the build.
+The tag sets the app version. The accepted format is `Vxx.xx.xx`, with 1 or 2 digits per part and an optional lowercase `v`. Any other tag fails the build.
 
 | Tag | `versionName` | `versionCode` |
 |---|---|---|
-| `V1.02.03-rc.04` | `1.02.03-rc.04` | `1020304` |
-| `V1.02.03` | `1.02.03` | `1020399` |
+| `V1.02.03` | `1.02.03` | `10203` |
+| `V1.10.00` | `1.10.00` | `11000` |
 | none (local build) | `0.0.0-dev` | `1` |
 
-The last two digits of `versionCode` hold the RC number, and `99` for a final release. A final release therefore always installs as an update over its release candidates (`rc.01` to `rc.98`).
+`versionCode` is `MMmmpp`, so it grows with the version and each release installs as an update over the previous one.
 
-To build a specific version locally: `./gradlew assembleRelease -PappVersion=V1.02.03-rc.04`.
+To build a specific version locally: `./gradlew assembleRelease -PappVersion=V1.02.03`.
 
 ### Signing
 

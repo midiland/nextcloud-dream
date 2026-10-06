@@ -5,21 +5,19 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Version de l'app, issue du tag git en CI : ./gradlew assembleRelease -PappVersion=V1.02.03-rc.04
-// Format accepté : [v|V]xx.xx.xx ou [v|V]xx.xx.xx-rc.xx (1 ou 2 chiffres par partie).
-// versionCode = MMmmpprr : une release finale (rr = 99) passe après toutes ses RC (rr = 0..98).
+// Version de l'app, issue du tag git en CI : ./gradlew assembleRelease -PappVersion=V1.02.03
+// Format accepté : [v|V]xx.xx.xx (1 ou 2 chiffres par partie).
+// versionCode = MMmmpp, donc croissant avec la version.
 // Sans -PappVersion (build local) : 0.0.0-dev, versionCode 1.
 val appVersionTag: String? = providers.gradleProperty("appVersion").orNull
 val (appVersionName, appVersionCode) = parseAppVersion(appVersionTag)
 
 fun parseAppVersion(tag: String?): Pair<String, Int> {
     if (tag.isNullOrBlank()) return "0.0.0-dev" to 1
-    val match = Regex("""^[vV]?(\d{1,2})\.(\d{1,2})\.(\d{1,2})(?:-rc\.(\d{1,2}))?$""").matchEntire(tag)
-        ?: throw GradleException("Version invalide « $tag » : attendu Vxx.xx.xx ou Vxx.xx.xx-rc.xx")
-    val (major, minor, patch, rc) = match.destructured
-    val rcNumber = rc.toIntOrNull()
-    if (rcNumber != null && rcNumber > 98) throw GradleException("Numéro de RC trop grand (max rc.98) : $tag")
-    val code = major.toInt() * 1_000_000 + minor.toInt() * 10_000 + patch.toInt() * 100 + (rcNumber ?: 99)
+    val match = Regex("""^[vV]?(\d{1,2})\.(\d{1,2})\.(\d{1,2})$""").matchEntire(tag)
+        ?: throw GradleException("Version invalide « $tag » : attendu Vxx.xx.xx")
+    val (major, minor, patch) = match.destructured
+    val code = major.toInt() * 10_000 + minor.toInt() * 100 + patch.toInt()
     return tag.removePrefix("v").removePrefix("V") to code
 }
 

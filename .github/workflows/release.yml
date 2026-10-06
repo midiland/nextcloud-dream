@@ -1,8 +1,8 @@
 # Build de l'APK release à la création d'un tag de version, puis publication
-# dans une GitHub Release (marquée « pre-release » pour les -rc).
+# dans une GitHub Release.
 #
-# Tags acceptés : V1.02.03, V1.02.03-rc.04 (ou avec un v minuscule)
-#   git tag V1.00.00-rc.01 && git push origin V1.00.00-rc.01
+# Tags acceptés : V1.02.03 (ou avec un v minuscule)
+#   git tag V1.00.00 && git push origin V1.00.00
 #
 # Signature : si les secrets SIGNING_* sont définis, l'APK est signé avec cette clé
 # (indispensable pour mettre à jour l'app sans la désinstaller). Sinon, avec une clé
@@ -27,8 +27,8 @@ jobs:
 
       - name: Vérification du format du tag
         run: |
-          if ! echo "$GITHUB_REF_NAME" | grep -Eq '^[vV][0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}(-rc\.[0-9]{1,2})?$'; then
-            echo "::error::Tag « $GITHUB_REF_NAME » invalide : attendu Vxx.xx.xx ou Vxx.xx.xx-rc.xx"
+          if ! echo "$GITHUB_REF_NAME" | grep -Eq '^[vV][0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$'; then
+            echo "::error::Tag « $GITHUB_REF_NAME » invalide : attendu Vxx.xx.xx"
             exit 1
           fi
 
@@ -78,5 +78,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.apk.outputs.path }}
-          prerelease: ${{ contains(github.ref_name, '-rc.') }}
           generate_release_notes: true
