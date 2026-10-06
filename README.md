@@ -366,15 +366,16 @@ The release then contains `nextcloud-dream-<version>.apk`, for example `nextclou
 
 ### Version numbers
 
-The tag sets the app version. The accepted format is `Vxx.xx.xx`, with 1 or 2 digits per part and an optional lowercase `v`. Any other tag fails the build.
+The tag sets the app version. The accepted format is `Vxx.xxx.xxx`: 1 or 2 digits for the major, 1 to 3 for the minor and the patch, with an optional lowercase `v`. Any other tag fails the build.
 
 | Tag | `versionName` | `versionCode` |
 |---|---|---|
-| `V1.02.03` | `1.02.03` | `10203` |
-| `V1.10.00` | `1.10.00` | `11000` |
+| `V1.02.03` | `1.02.03` | `1002003` |
+| `V1.10.00` | `1.10.00` | `1010000` |
+| `V12.345.678` | `12.345.678` | `12345678` |
 | none (local build) | `0.0.0-dev` | `1` |
 
-`versionCode` is `MMmmpp`, so it grows with the version and each release installs as an update over the previous one.
+`versionCode` is `MMmmmppp`, so it grows with the version and each release installs as an update over the previous one. The highest possible value, `99999999` for `V99.999.999`, stays well below the maximum an Android `versionCode` accepts.
 
 To build a specific version locally: `./gradlew assembleRelease -PappVersion=V1.02.03`.
 

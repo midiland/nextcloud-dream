@@ -6,18 +6,18 @@ plugins {
 }
 
 // Version de l'app, issue du tag git en CI : ./gradlew assembleRelease -PappVersion=V1.02.03
-// Format accepté : [v|V]xx.xx.xx (1 ou 2 chiffres par partie).
-// versionCode = MMmmpp, donc croissant avec la version.
+// Format accepté : [v|V]xx.xxx.xxx (majeur sur 1 à 2 chiffres, mineur et patch sur 1 à 3).
+// versionCode = MMmmmppp, donc croissant avec la version (99.999.999 au plus).
 // Sans -PappVersion (build local) : 0.0.0-dev, versionCode 1.
 val appVersionTag: String? = providers.gradleProperty("appVersion").orNull
 val (appVersionName, appVersionCode) = parseAppVersion(appVersionTag)
 
 fun parseAppVersion(tag: String?): Pair<String, Int> {
     if (tag.isNullOrBlank()) return "0.0.0-dev" to 1
-    val match = Regex("""^[vV]?(\d{1,2})\.(\d{1,2})\.(\d{1,2})$""").matchEntire(tag)
-        ?: throw GradleException("Version invalide « $tag » : attendu Vxx.xx.xx")
+    val match = Regex("""^[vV]?(\d{1,2})\.(\d{1,3})\.(\d{1,3})$""").matchEntire(tag)
+        ?: throw GradleException("Version invalide « $tag » : attendu Vxx.xxx.xxx")
     val (major, minor, patch) = match.destructured
-    val code = major.toInt() * 10_000 + minor.toInt() * 100 + patch.toInt()
+    val code = major.toInt() * 1_000_000 + minor.toInt() * 1_000 + patch.toInt()
     return tag.removePrefix("v").removePrefix("V") to code
 }
 

@@ -1,7 +1,7 @@
 # Build de l'APK release à la création d'un tag de version, puis publication
 # dans une GitHub Release.
 #
-# Tags acceptés : V1.02.03 (ou avec un v minuscule)
+# Tags acceptés : V1.02.03, V1.002.003 (ou avec un v minuscule)
 #   git tag V1.00.00 && git push origin V1.00.00
 #
 # Signature : si les secrets SIGNING_* sont définis, l'APK est signé avec cette clé
@@ -27,8 +27,8 @@ jobs:
 
       - name: Vérification du format du tag
         run: |
-          if ! echo "$GITHUB_REF_NAME" | grep -Eq '^[vV][0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$'; then
-            echo "::error::Tag « $GITHUB_REF_NAME » invalide : attendu Vxx.xx.xx"
+          if ! echo "$GITHUB_REF_NAME" | grep -Eq '^[vV][0-9]{1,2}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
+            echo "::error::Tag « $GITHUB_REF_NAME » invalide : attendu Vxx.xxx.xxx"
             exit 1
           fi
 
