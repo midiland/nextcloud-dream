@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="dream_label">Photos Nextcloud</string>
+    <string name="dream_label">Nextcloud Dream</string>
 
     <string name="dream_loading">Récupération des photos depuis Nextcloud…</string>
     <string name="dream_no_photos">Aucune photo disponible — serveur Nextcloud injoignable ou dossier vide</string>

@@ -2,7 +2,7 @@
 <!-- Textes par défaut (anglais), utilisés pour toute langue sans traduction dédiée -->
 <resources>
     <string name="app_name" translatable="false">Nextcloud Dream</string>
-    <string name="dream_label">Nextcloud Photos</string>
+    <string name="dream_label">Nextcloud Dream</string>
 
     <string name="dream_loading">Fetching photos from Nextcloud…</string>
     <string name="dream_no_photos">No photos available — Nextcloud server unreachable or folder empty</string>
