@@ -1,6 +1,9 @@
 package fr.midiland.nextclouddream
 
 import android.os.Bundle
+import android.view.KeyEvent
+import android.view.View
+import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import fr.midiland.nextclouddream.settings.SettingsManager
@@ -32,8 +35,38 @@ class MainActivity : AppCompatActivity() {
         settings = container.settings
 
         loadSettings()
+        enableDpadNavigation()
         binding.saveButton.setOnClickListener { saveAndSync() }
         binding.testButton.setOnClickListener { testConnection() }
+    }
+
+    /**
+     * Navigation à la télécommande entre les champs de saisie.
+     *
+     * Un EditText consomme les flèches haut et bas (elles déplacent le curseur dans
+     * le texte) : sans cela, le focus reste bloqué sur le premier champ et l'écran
+     * est inutilisable sans clavier. Les champs tiennent sur une ligne, donc on rend
+     * ces touches au déplacement du focus. Le premier champ prend le focus au
+     * démarrage, sinon le premier appui sur la télécommande est perdu.
+     */
+    private fun enableDpadNavigation() = with(binding) {
+        listOf(serverUrl, username, appPassword, folderPath, slideInterval, syncInterval, maxCache)
+            .forEach { it.moveFocusOnVerticalDpad() }
+        serverUrl.requestFocus()
+    }
+
+    private fun EditText.moveFocusOnVerticalDpad() = setOnKeyListener { view, keyCode, event ->
+        val direction = when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP -> View.FOCUS_UP
+            KeyEvent.KEYCODE_DPAD_DOWN -> View.FOCUS_DOWN
+            else -> return@setOnKeyListener false
+        }
+        // On ne réagit qu'à l'appui, mais les deux événements sont consommés
+        // pour éviter que le relâchement ne retombe sur le champ d'origine.
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            view.focusSearch(direction)?.requestFocus(direction)
+        }
+        true
     }
 
     private fun loadSettings() = with(binding) {
