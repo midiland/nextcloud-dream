@@ -87,6 +87,16 @@ Les objets partagés passent par **`AppContainer`** (`context.container`) : un s
 - **Vérifié sur l'émulateur Android TV 9** le 2026-10-08, API GitHub simulée en HTTPS (autorité de confiance installée dans le magasin système, `api.github.com` redirigé par `/system/etc/hosts` + `adb reverse`) : parcours complet 1.0.0 → 1.0.1 avec deux APK signés de la même clé, cas « à jour », et refus propre avec deux clés différentes. Jamais essayé sur la Mi Box.
 - Le verdict de l'installation arrive pendant que l'écran système est au premier plan : le récepteur de `MainActivity` est donc inscrit de `onCreate` à `onDestroy`, pas de `onStart` à `onStop` — sinon l'écran reste sur « installation en cours » après un échec (bug trouvé au test).
 
+### Raccourci vers les réglages de l'économiseur
+
+`MainActivity.offerScreensaverSettings()` propose un bouton vers l'écran où l'utilisateur choisit son économiseur — l'étape que l'application ne peut pas faire seule, `screensaver_components` étant dans `Settings.Secure` (permission `WRITE_SECURE_SETTINGS`, système et adb uniquement).
+
+- **Android TV n'a pas l'équivalent du raccourci des notifications.** Le manifeste de TvSettings (AOSP) déclare 25 actions `android.settings.*`, dont `ACTION_NOTIFICATION_LISTENER_SETTINGS`, mais **pas `ACTION_DREAM_SETTINGS`**. Sa `DaydreamActivity` n'a aucun intent-filter, donc elle est inatteignable depuis une application tierce.
+- D'où l'enchaînement : `ACTION_DREAM_SETTINGS` d'abord (téléphones, peut-être les variantes Google TV), repli sur `ACTION_SETTINGS` (déclaré → `MainSettings`), bouton masqué si rien ne résout.
+- Le bloc `<queries>` du manifeste est **indispensable** : sans lui, la visibilité des paquets (API 30+) ferait renvoyer null à `resolveActivity` et le bouton resterait masqué.
+- Autre piste si besoin un jour : `com.google.android.pano.action.SLEEP` (→ `DaydreamVoiceAction`) démarre l'économiseur sélectionné sur-le-champ. C'est la seule action qui fonctionne sur la Mi Box pour le lancer.
+- **Non vérifié sur appareil** : le code compile, mais le comportement réel du bouton sur une TV n'a pas été observé.
+
 ### Invariants à respecter
 
 - **Écriture atomique.** Le cache et l'index n'exposent jamais de fichier incomplet. Les fichiers temporaires `*.part` sont renommés à la fin. `listPhotos()` ne liste que les `*.jpg`.

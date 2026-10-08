@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageInstaller
 import android.os.Bundle
+import android.provider.Settings
 import android.view.KeyEvent
 import android.view.View
 import android.widget.EditText
@@ -48,6 +49,7 @@ class MainActivity : AppCompatActivity() {
         enableDpadNavigation()
         binding.saveButton.setOnClickListener { saveAndSync() }
         binding.testButton.setOnClickListener { testConnection() }
+        offerScreensaverSettings()
 
         // Inscrit pour toute la vie de l'activité, pas seulement quand elle est visible :
         // le verdict de l'installation arrive pendant que l'écran système est au premier plan.
@@ -58,6 +60,30 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         checkForUpdate()
+    }
+
+    /**
+     * Raccourci vers l'écran où choisir l'économiseur d'écran, l'étape que l'application
+     * ne peut pas faire elle-même : `screensaver_components` est dans `Settings.Secure`,
+     * donc réservé au système.
+     *
+     * Android TV n'a pas d'équivalent du raccourci des notifications : l'application
+     * Réglages d'AOSP ne déclare aucun gestionnaire pour `ACTION_DREAM_SETTINGS`. On le
+     * tente quand même — les téléphones et peut-être les variantes Google TV le
+     * connaissent — puis on se rabat sur la racine des réglages. Si rien ne répond,
+     * le bouton reste masqué plutôt que de mener à une erreur.
+     */
+    private fun offerScreensaverSettings() {
+        val destination = listOf(Settings.ACTION_DREAM_SETTINGS, Settings.ACTION_SETTINGS)
+            .map(::Intent)
+            .firstOrNull { it.resolveActivity(packageManager) != null }
+            ?: return
+
+        binding.screensaverSettingsButton.visibility = View.VISIBLE
+        binding.screensaverSettingsButton.setOnClickListener {
+            // L'écran peut avoir disparu entre la résolution et le clic (mise à jour du système)
+            runCatching { startActivity(destination) }
+        }
     }
 
     /**

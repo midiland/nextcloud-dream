@@ -8,6 +8,17 @@
          L'utilisateur doit en plus autoriser l'application dans « Sources inconnues ». -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Visibilité des paquets (API 30+) : sans ça, resolveActivity ne verrait pas
+         les Réglages et le bouton « Réglages de l'économiseur » resterait masqué. -->
+    <queries>
+        <intent>
+            <action android:name="android.settings.DREAM_SETTINGS" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.SETTINGS" />
+        </intent>
+    </queries>
+
     <!-- Application TV : pas d'écran tactile, launcher Leanback -->
     <uses-feature
         android:name="android.software.leanback"

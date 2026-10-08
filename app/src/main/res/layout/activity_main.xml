@@ -119,6 +119,15 @@
             android:textColor="#B0FFFFFF"
             android:textSize="16sp" />
 
+        <!-- Masqué si l'appareil n'expose aucun écran de réglages atteignable -->
+        <Button
+            android:id="@+id/screensaver_settings_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/config_screensaver_settings"
+            android:visibility="gone" />
+
         <!-- Mise à jour : le bouton n'apparaît que si une version plus récente existe -->
         <TextView
             android:id="@+id/update_status"

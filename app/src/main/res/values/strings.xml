@@ -54,4 +54,5 @@
     <string name="update_installed">Update installed.</string>
     <string name="update_signature_mismatch">Install refused: this update is not signed with the same key as the installed version.</string>
     <string name="update_refused">Install refused by the system (code %1$d).</string>
+    <string name="config_screensaver_settings">Screen saver settings</string>
 </resources>

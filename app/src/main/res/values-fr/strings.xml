@@ -53,4 +53,5 @@
     <string name="update_installed">Mise à jour installée.</string>
     <string name="update_signature_mismatch">Installation refusée : cette mise à jour n\'est pas signée avec la même clé que la version installée.</string>
     <string name="update_refused">Installation refusée par le système (code %1$d).</string>
+    <string name="config_screensaver_settings">Réglages de l\'économiseur d\'écran</string>
 </resources>
