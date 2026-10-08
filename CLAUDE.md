@@ -111,6 +111,22 @@ Les objets partagés passent par **`AppContainer`** (`context.container`) : un s
 - ⚠️ Le package a été renommé de `com.nextclouddream` en `fr.midiland.nextclouddream` le 2026-10-06. Pour Android c'est une **application différente** : sur l'émulateur et sur la Mi Box il faut faire `adb uninstall com.nextclouddream` (l'ancienne reste installée et visible sinon), ressaisir la configuration, et repointer `screensaver_components` sur le nouveau composant. Le cache et l'index repartent de zéro. C'est ce renommage qui a rendu `LegacySettingsMigration` définitivement inutile — elle lisait les préférences dans le répertoire du nouveau package, toujours vide — d'où sa suppression le 2026-10-07, avec la dépendance `security-crypto` (APK : 1,96 Mo → 1,72 Mo).
 - Le dépôt est `git@github.com:midiland/nextcloud-dream.git`, destiné à devenir public.
 
+## Icône et bannière
+
+Les deux sont **obligatoires** sur Android TV et déclarées dans le manifeste (`android:icon`, `android:banner`). Générées depuis `nextcloud-dream.png` (564×566, fond transparent) aux tailles des guides Android TV, dans `res/mipmap-*` :
+
+| Densité | Icône (1:1) | Bannière (16:9) |
+|---|---|---|
+| mdpi | 80×80 | 160×90 |
+| hdpi | 120×120 | 240×135 |
+| xhdpi | 160×160 | 320×180 |
+| xxhdpi | 240×240 | 480×270 |
+| xxxhdpi | 320×320 | 640×360 |
+
+- **Format WebP** (q95 pour l'icône avec alpha, q90 pour la bannière) : 91 Ko pour les dix fichiers, contre 574 Ko en PNG. Pris en charge depuis bien avant minSdk 28.
+- **La bannière doit contenir le nom de l'application** — c'est elle que le launcher Android TV affiche, pas l'icône. Elle est composée du logo net sur un fond repris du logo, flouté et assombri (même procédé que `BlurredBackground`), avec une marge de sécurité : le logo occupe 86 % de la hauteur, rien ne touche les bords.
+- Pas d'icône adaptative : le logo fourni est un carré arrondi plein cadre dont le texte descend jusqu'à 85 % de la hauteur, donc en dehors de la zone sûre de 72/108 dp. Un masque circulaire couperait « DREAM ». Il faudrait un logo en calques (sujet seul + fond) pour en faire une.
+
 ## Versions (alignées sur les outils installés sur ce Mac)
 
 - AGP 8.13.0, Kotlin 2.0.21, Gradle 8.14.3 (déjà en cache dans `~/.gradle`), compileSdk/targetSdk 36, minSdk 28.
@@ -166,5 +182,4 @@ Les objets partagés passent par **`AppContainer`** (`context.container`) : un s
 - Repli hors connexion testé sur l'émulateur (`svc wifi disable`) : le diaporama bascule bien sur le cache.
 - Sur la box, 4 originaux non réduits restent dans le cache (avant le correctif « invalid scale »). Ils seront évincés par le LRU.
 - HEIC, fluidité et mémoire n'ont pas été vérifiés sur la Mi Box réelle.
-- Icône et bannière TV provisoires (vecteurs simples dans `res/drawable`).
 - Logs en release : `ReleaseTree` (INFO et au-dessus, tag `NextcloudDream`) → `adb logcat -s NextcloudDream:V`.
