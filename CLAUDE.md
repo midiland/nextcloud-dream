@@ -124,6 +124,7 @@ Les deux sont **obligatoires** sur Android TV et déclarées dans le manifeste (
 
 - **Format WebP** (q95 pour l'icône avec alpha, q90 pour la bannière) : 91 Ko pour les dix fichiers, contre 574 Ko en PNG. Pris en charge depuis bien avant minSdk 28.
 - **La bannière doit contenir le nom de l'application** — c'est elle que le launcher Android TV affiche, pas l'icône. Elle est composée du logo net sur un fond repris du logo, flouté et assombri (même procédé que `BlurredBackground`), avec une marge de sécurité : le logo occupe 86 % de la hauteur, rien ne touche les bords.
+- `docs/banner.webp` (1280×400) est le bandeau du README, composé de la même façon. Hors de `res/`, il ne pèse donc pas sur l'APK.
 - Pas d'icône adaptative : le logo fourni est un carré arrondi plein cadre dont le texte descend jusqu'à 85 % de la hauteur, donc en dehors de la zone sûre de 72/108 dp. Un masque circulaire couperait « DREAM ». Il faudrait un logo en calques (sujet seul + fond) pour en faire une.
 
 ## Versions (alignées sur les outils installés sur ce Mac)

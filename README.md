@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/banner.webp" alt="Nextcloud Dream" width="100%"></p>
+
 # Nextcloud Dream
 
 [![Download the latest APK](https://img.shields.io/github/v/release/midiland/nextcloud-dream?style=for-the-badge&logo=android&logoColor=white&label=Download%20APK&color=0082c9)](https://github.com/midiland/nextcloud-dream/releases/latest/download/nextcloud-dream.apk)
