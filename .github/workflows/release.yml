@@ -4,9 +4,9 @@
 # Tags acceptés : V1.02.03, V1.002.003 (ou avec un v minuscule)
 #   git tag V1.00.00 && git push origin V1.00.00
 #
-# Signature : si les secrets SIGNING_* sont définis, l'APK est signé avec cette clé
-# (indispensable pour mettre à jour l'app sans la désinstaller). Sinon, avec une clé
-# debug générée par le runner, différente à chaque build.
+# Signature : les quatre secrets SIGNING_* sont obligatoires, le build échoue sans eux.
+# Une release signée par la clé debug du runner serait ingérable : cette clé change à
+# chaque build, donc Android refuserait la mise à jour d'une version à l'autre.
 name: Release APK
 
 on:
@@ -46,16 +46,34 @@ jobs:
           chmod +x gradlew
           ./gradlew testDebugUnitTest
 
+      # Les secrets sont dans Settings > Secrets and variables > Actions, onglet
+      # « Secrets » : une « Repository variable » du même nom ne serait pas lue ici.
       - name: Préparation de la clé de signature
         env:
           SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
-          if [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
-            echo "$SIGNING_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
-            echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
-          else
-            echo "::warning::Secret SIGNING_KEYSTORE_BASE64 absent : APK signé avec une clé debug temporaire"
+          manquants=""
+          for secret in SIGNING_KEYSTORE_BASE64 SIGNING_STORE_PASSWORD SIGNING_KEY_ALIAS SIGNING_KEY_PASSWORD; do
+            if [ -z "${!secret}" ]; then manquants="$manquants $secret"; fi
+          done
+          if [ -n "$manquants" ]; then
+            echo "::error::Secrets de signature absents :$manquants — à définir dans Settings > Secrets and variables > Actions, onglet Secrets (et non Variables)."
+            exit 1
           fi
+
+          keystore="$RUNNER_TEMP/release.keystore"
+          echo "$SIGNING_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          # Vérifié tout de suite : un base64 tronqué ou un mauvais alias échouerait
+          # sinon au milieu du build, avec un message de Gradle peu parlant.
+          if ! keytool -list -keystore "$keystore" -storepass "$SIGNING_STORE_PASSWORD" -alias "$SIGNING_KEY_ALIAS" > /dev/null 2>&1; then
+            # Pas de valeur dans le message : les logs d'un dépôt public sont lisibles par tous.
+            echo "::error::Keystore inutilisable : base64 tronqué, mot de passe erroné, ou alias absent du magasin."
+            exit 1
+          fi
+          echo "SIGNING_KEYSTORE_PATH=$keystore" >> "$GITHUB_ENV"
 
       - name: Build de l'APK release
         env:
