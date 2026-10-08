@@ -10,6 +10,7 @@ A screensaver for **Android TV** that shows a slideshow of the photos in a folde
 - **Framing adapted to each photo:**
   - landscape photos fill the screen;
   - portrait and square photos are shown in full, over a blurred background taken from the photo itself.
+- **Live photos move.** When a photo carries a live part — an iPhone **Live Photo** or a Pixel **Motion Photo** — the short clip plays once, silently, then the still comes back. Nothing to prepare: both are detected on the server as they are. Can be turned off in the settings.
 - **Date taken and location** in the bottom-left corner ("31 October 2022 — Paris, France"). Both come from the photo's EXIF data; the place name is computed from the GPS coordinates.
 - Current time and date in the bottom-right corner. The clock shifts slightly every minute to prevent burn-in on OLED screens.
 - Random order, without a photo coming back too soon.
@@ -125,7 +126,7 @@ adb install -r app/build/outputs/apk/release/app-release.apk   # APK built local
 ## 5. Enable the screensaver
 
 1. Go to **Settings → Device Preferences → Screen saver**.
-2. Choose **Photos Nextcloud**.
+2. Choose **Nextcloud Dream**.
 3. Set the start delay.
 
 If the option doesn't appear, see [Selecting and starting the screensaver](#selecting-and-starting-the-screensaver).
@@ -205,7 +206,7 @@ On an Apple Silicon Mac, Android TV 9 (API 28) images only exist for x86. Use an
 
 - **📺 On the TV:**
   1. Go to **Settings → Device Preferences → Screen saver**.
-  2. **Screen saver**: choose **Photos Nextcloud**.
+  2. **Screen saver**: choose **Nextcloud Dream**.
   3. **When to start**: set the inactivity delay.
   4. **Start now**: starts it immediately.
 
@@ -340,14 +341,16 @@ app/src/main/java/fr/midiland/nextclouddream/
 │   └── PhotoPlaylist.kt             random order without close repeats
 ├── ui/
 │   ├── SlideshowView.kt             display, framing, cross-fade
+│   ├── MotionLayer.kt               plays the clip of a live photo, once and muted
 │   └── BlurredBackground.kt         blurred background for portrait photos
 ├── photos/
 │   ├── PhotoRepository.kt           index sync, on-the-fly download, fallback logic
 │   ├── PhotoSource.kt               what the screensaver needs from the repository
-│   ├── IndexedPhoto.kt, PhotoMetadata.kt, FetchResult.kt   models
+│   ├── IndexedPhoto.kt, PhotoMetadata.kt, MotionRef.kt, FetchResult.kt   models
 ├── remote/
 │   ├── NextcloudWebDavClient.kt     WebDAV, Nextcloud previews, partial reads
 │   ├── MultistatusParser.kt         PROPFIND response parsing
+│   ├── MotionPhoto.kt               finds the video embedded in a Pixel JPEG
 │   ├── ExifReader.kt                date taken + GPS from EXIF
 │   └── PlaceResolver.kt             GPS coordinates → place name
 ├── storage/
