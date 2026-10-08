@@ -91,7 +91,7 @@ kotlin {
 
 // Couverture des tests unitaires : ./gradlew jacocoTestReport
 // Rapport lisible dans app/build/reports/jacoco/jacocoTestReport/html/index.html,
-// XML dans .../jacocoTestReport.xml (lu par la CI pour le badge).
+// XML à côté. Mesure à la demande : la CI ne s'en sert pas.
 tasks.register<JacocoReport>("jacocoTestReport") {
     group = "verification"
     description = "Couverture des tests unitaires JVM (testDebugUnitTest)"
@@ -100,8 +100,6 @@ tasks.register<JacocoReport>("jacocoTestReport") {
     reports {
         xml.required.set(true)
         html.required.set(true)
-        // CSV : c'est ce format que lit le générateur de badge en CI
-        csv.required.set(true)
     }
 
     // Code généré : ni écrit ni testé par nous, il fausserait la mesure

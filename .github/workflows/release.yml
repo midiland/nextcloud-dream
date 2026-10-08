@@ -41,19 +41,10 @@ jobs:
       - name: Installation de Gradle (avec cache)
         uses: gradle/actions/setup-gradle@v4
 
-      # jacocoTestReport dépend de testDebugUnitTest : les tests restent bloquants.
-      - name: Tests unitaires et couverture
+      - name: Tests unitaires
         run: |
           chmod +x gradlew
-          ./gradlew jacocoTestReport
-
-      - name: Badge de couverture
-        uses: cicirello/jacoco-badge-generator@v2
-        with:
-          jacoco-csv-file: app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.csv
-          badges-directory: .github/badges
-          generate-coverage-badge: true
-          generate-branches-badge: true
+          ./gradlew testDebugUnitTest
 
       # Les secrets sont dans Settings > Secrets and variables > Actions, onglet
       # « Secrets » : une « Repository variable » du même nom ne serait pas lue ici.
@@ -103,28 +94,3 @@ jobs:
         with:
           files: nextcloud-dream.apk
           generate_release_notes: true
-
-      # En dernier : cette étape bascule l'arbre de travail du tag vers main, le build
-      # ne doit plus rien lire ensuite. Le tag n'étant pas une branche, on ne peut pas
-      # committer dessus ; le badge va donc sur main, d'où le tag est issu. Pas de
-      # boucle possible, ce workflow ne se déclenche que sur un tag.
-      - name: Publication du badge sur main
-        run: |
-          mkdir -p "$RUNNER_TEMP/badges"
-          cp .github/badges/*.svg "$RUNNER_TEMP/badges/"
-          rm -rf .github/badges
-
-          git fetch --depth=1 origin main
-          git checkout -B main FETCH_HEAD
-          mkdir -p .github/badges
-          cp "$RUNNER_TEMP/badges"/*.svg .github/badges/
-
-          if git diff --quiet -- .github/badges; then
-            echo "Couverture inchangée : badge déjà à jour sur main."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/badges
-          git commit -m "Update the coverage badge for $GITHUB_REF_NAME"
-          git push origin main
