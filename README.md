@@ -356,14 +356,13 @@ app/src/main/java/fr/midiland/nextclouddream/
 │   └── ImageResizer.kt              on-device resizing (when no server preview)
 ├── settings/
 │   ├── SettingsManager.kt           settings (app password encrypted)
-│   ├── KeystoreCipher.kt            AES-GCM with an Android Keystore key
-│   └── LegacySettingsMigration.kt   one-time migration from older versions
+│   └── KeystoreCipher.kt            AES-GCM with an Android Keystore key
 └── worker/SyncWorker.kt             periodic background sync
 ```
 
 Unit tests (JVM, no emulator needed) are in `app/src/test`: `./gradlew testDebugUnitTest`. They also run in CI before each release build.
 
-Dependencies: Coil, OkHttp, WorkManager, ExifInterface, Coroutines, Timber (and AndroidX Security, only to migrate settings from older versions).
+Dependencies: Coil, OkHttp, WorkManager, ExifInterface, Coroutines, Timber.
 
 Code comments are in French.
 

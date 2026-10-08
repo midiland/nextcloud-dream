@@ -24,10 +24,6 @@ class SettingsManager(context: Context) {
     @Volatile
     private var decryptedPassword: String? = null
 
-    init {
-        LegacySettingsMigration.migrateIfNeeded(context.applicationContext, this)
-    }
-
     /** URL de base du serveur, sans slash final (ex. https://cloud.exemple.fr). */
     var serverUrl: String
         get() = prefs.getString(KEY_SERVER_URL, "").orEmpty()
