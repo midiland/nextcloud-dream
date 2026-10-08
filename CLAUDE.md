@@ -6,16 +6,19 @@
 
 ## Commandes
 
-Il n'y a pas de `java` utilisable dans le PATH système : utiliser le JDK d'Android Studio.
+Le `java` du PATH est un JDK 25, que Gradle 8.14 / AGP 8.13 refusent : **toujours forcer
+le JDK 17**. Le SDK Android est dans `~/Android/Sdk` (et non à l'emplacement macOS).
 
 ```bash
-export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
-./gradlew assembleDebug        # APK debug ~14 Mo, logs Timber actifs, run-as possible
-./gradlew assembleRelease      # APK release ~1,9 Mo (R8), signé avec la clé debug, logs INFO+ (tag NextcloudDream)
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export ANDROID_SDK_ROOT=$HOME/Android/Sdk
+./gradlew assembleDebug        # APK debug ~11 Mo, logs Timber actifs, run-as possible
+./gradlew assembleRelease      # APK release ~1,8 Mo (R8), signé avec la clé debug, logs INFO+ (tag NextcloudDream)
+./gradlew testDebugUnitTest    # 53 tests, ~1 min à froid
 ```
 
 - Debug et release ont la même signature (clé debug). On passe de l'un à l'autre avec `adb install -r`, et les données sont conservées.
-- `adb` se trouve dans `~/Library/Android/sdk/platform-tools/adb`. Il est ajouté au PATH dans `~/.zshrc`, mais les shells non interactifs ne le voient pas : utiliser le chemin complet.
+- `adb` se trouve dans `~/Android/Sdk/platform-tools/adb`. Les shells non interactifs ne l'ont pas dans leur PATH : utiliser le chemin complet.
 
 Pour lancer l'économiseur sur un appareil :
 
@@ -138,7 +141,7 @@ audio** (ne pas couper la musique de l'utilisateur). Pas de rotation à applique
 bien que ce soit souvent conseillé : les dimensions annoncées par `MediaPlayer` sont déjà
 celles de l'affichage (un `.mov` codé 1280×720 avec rotation 90° est annoncé 720×1280) et
 l'image arrive déjà redressée — tourner une seconde fois donnait une vidéo couchée et
-étirée en plein écran (constaté à l'écran, corrigé). Pour un Motion Photo, la lecture
+étirée en plein écran (constaté à l'écran sur Android 9, corrigé). Pour un Motion Photo, la lecture
 commence à `MotionPhotoPresentationTimestampUs`, c'est-à-dire **sur l'image fixe
 elle-même** : le passage photo → vidéo est invisible. Retour à la photo par un fondu de
 300 ms.
@@ -194,7 +197,7 @@ Les deux sont **obligatoires** sur Android TV et déclarées dans le manifeste (
 - `docs/banner.webp` (1280×400) est le bandeau du README, composé de la même façon. Hors de `res/`, il ne pèse donc pas sur l'APK.
 - Pas d'icône adaptative : le logo fourni est un carré arrondi plein cadre dont le texte descend jusqu'à 85 % de la hauteur, donc en dehors de la zone sûre de 72/108 dp. Un masque circulaire couperait « DREAM ». Il faudrait un logo en calques (sujet seul + fond) pour en faire une.
 
-## Versions (alignées sur les outils installés sur ce Mac)
+## Versions (alignées sur les outils installés sur cette machine)
 
 - AGP 8.13.0, Kotlin 2.0.21, Gradle 8.14.3 (déjà en cache dans `~/.gradle`), compileSdk/targetSdk 36, minSdk 28.
 - Coil **2.7** (API `coil.*`, pas Coil 3), OkHttp 4.12, WorkManager 2.10, Timber 5.
@@ -202,11 +205,10 @@ Les deux sont **obligatoires** sur Android TV et déclarées dans le manifeste (
 
 ## Environnements de test
 
-### Émulateur : `Android_TV_1080p_API31`
+### Émulateur : `tv28`
 
-- Image `system-images;android-31;android-tv;arm64-v8a`. Le Mac est Apple Silicon : les images TV API 28 n'existent qu'en x86 et ne démarrent pas.
-- Créé avec `avdmanager` (cmdline-tools installés dans `~/Library/Android/sdk/cmdline-tools/latest`).
-- **Clavier :** il a fallu passer `hw.keyboard = yes` dans `~/.android/avd/Android_TV_1080p_API31.avd/config.ini`, sinon le clavier du Mac n'est pas transmis. Clavier AZERTY : la saisie peut être mal mappée, utiliser `adb shell input text "..."`.
+- Image `system-images;android-28;android-tv;x86`, soit **Android TV 9, la même version que la Mi Box** — c'est ce qui rend les essais représentatifs. La machine est un Linux x86_64, donc l'image x86 démarre (sur un Mac Apple Silicon il faudrait une image arm64, donc API 30 ou plus).
+- **Clavier :** `hw.keyboard = yes` dans `~/.android/avd/tv28.avd/config.ini`, sinon le clavier de la machine n'est pas transmis. Clavier AZERTY : la saisie peut être mal mappée, utiliser `adb shell input text "..."`.
 - Une configuration Nextcloud de test y est saisie, sur un dossier de 3 photos.
 - Pour tester sans serveur, copier des JPEG dans le cache : `adb push` vers `/data/local/tmp`, puis `run-as ... cp` dans `files/photos/`. Il faut la version debug.
 
@@ -250,7 +252,8 @@ Les deux sont **obligatoires** sur Android TV et déclarées dans le manifeste (
 - Sur la box, 4 originaux non réduits restent dans le cache (avant le correctif « invalid scale »). Ils seront évincés par le LRU.
 - HEIC, fluidité et mémoire n'ont pas été vérifiés sur la Mi Box réelle.
 - **Photos animées, ce qui reste à vérifier.** Le parcours complet a été observé sur
-  l'émulateur Android TV (API 31) avec des fichiers fabriqués pour l'occasion : Motion
+  l'émulateur Android TV 9 (API 28, la version de la Mi Box) avec des fichiers fabriqués
+  pour l'occasion : Motion
   Photo avec carte de gain, leurre Ultra HDR, paire `.jpg`+`.mov` avec rotation, détection
   et cadrage corrects, réglage décoché, serveur coupé. **Jamais essayé sur de vrais
   fichiers d'appareil** : le `.mov` de test est un MP4/H.264 renommé, là où un iPhone

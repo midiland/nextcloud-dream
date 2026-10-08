@@ -18,7 +18,7 @@ A screensaver for **Android TV** that shows a slideshow of the photos in a folde
 - **Keeps working offline** thanks to a fallback cache of the most recently shown photos.
 - The Nextcloud app password is encrypted with a key kept in the Android Keystore.
 
-Tested on a Mi Box S (Android 9) and an Android TV emulator (Android 12). Requires **Android 9** or later.
+Tested on a Mi Box S (Android 9) and an Android TV emulator (Android 9 and 12). Requires **Android 9** or later.
 
 > The app is available in **English** and **French**, following the device language (English for any other language).
 
@@ -44,6 +44,7 @@ Nextcloud ◄──────────────┤  server-resized previ
 - **Startup:** the screensaver reads the local index, so no network access is needed. On the very first run, it only waits for the photo list to be fetched.
 - **During the slideshow:** for each photo, the screensaver uses the cached copy if there is one; otherwise it asks Nextcloud for a **resized preview**. If the server can't generate one (for example HEIC without a dedicated module), it downloads the original and resizes it on the device.
 - **Server unreachable:** the slideshow continues with the photos in the fallback cache, and retries the network every 5 minutes.
+- **Live photos:** the clip is fetched during the previous photo, like the images themselves — for a Pixel, with a range request that reads only the video glued to the end of the JPEG. Clips live in their own 20 MB cache, so they never take room from the photos that keep the slideshow running offline. If the clip is not ready in time, the photo is simply shown without it.
 - **Storage almost full:** the device is never filled up; downloads stop when less than 30 MB of usable space remains.
 
 ---
@@ -56,7 +57,7 @@ Nextcloud ◄──────────────┤  server-resized previ
    - Enter a name such as "Mi Box", then click **Create new app password**.
    - Write down the generated password. You can revoke it at any time.
 
-Supported formats: JPG, JPEG, PNG, HEIC/HEIF, WebP.
+Supported formats: JPG, JPEG, PNG, HEIC/HEIF, WebP. A `.MOV` or `.MP4` sitting next to a photo is never shown on its own — it is only used as the live part of that photo.
 
 > The server must be reachable over **HTTPS with a valid certificate**. Plain HTTP and self-signed certificates are not supported yet.
 >
@@ -86,7 +87,7 @@ export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"  
 
 | | Release | Debug |
 |---|---|---|
-| Size | ~2 MB (R8-optimized) | ~15-25 MB |
+| Size | ~2 MB (R8-optimized) | ~11 MB |
 | Logs | info, warnings, errors (tag `NextcloudDream`) | everything (tag = class name) |
 | File inspection via `run-as` | ❌ | ✅ |
 | Use for | the TV box (limited storage) | the emulator, debugging |
@@ -119,7 +120,7 @@ adb install -r app/build/outputs/apk/release/app-release.apk   # APK built local
    - username
    - app password
    - folder
-   - display time, refresh interval, fallback cache size, clock, date and location
+   - display time, refresh interval, fallback cache size, clock, date and location, live photos
 3. Click **Test connection**: the number of photos found should be displayed.
 4. Click **Save and sync**.
 
@@ -151,6 +152,8 @@ export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 ### Android TV emulator
 
 On an Apple Silicon Mac, Android TV 9 (API 28) images only exist for x86. Use an **API 30 or later image, arm64**.
+
+On an Intel or AMD machine, prefer `system-images;android-28;android-tv;x86`: it is **the same Android version as the Mi Box**, which makes the tests far more representative.
 
 - **🖥️ In Android Studio:**
   1. Open **Device Manager**, then **+**, then **Create Virtual Device**.
@@ -253,9 +256,11 @@ Press any key on the remote to exit the screensaver.
 
   ```
   Économiseur démarré
-  WebDAV : 18 image(s) trouvée(s) dans /Photos/ScreenSaver
-  Synchro : 18 photo(s), 18 métadonnée(s) lue(s), 16 préchargée(s), 18 en cache
+  WebDAV : 18 image(s) trouvée(s) dans /Photos/ScreenSaver, dont 2 animée(s)
+  Photo animée : PXL_….MP.jpg (clip de 3528 Ko)
+  Synchro : 18 photo(s) dont 2 animée(s), 18 métadonnée(s) lue(s), 16 préchargée(s), 18 en cache
   Photo affichée : 260e33d4….jpg (entière)
+  Clip 260e33d4….mp4 : 1280x720, départ à 1043 ms
   ```
 
 ### Screenshot
@@ -274,7 +279,8 @@ Press any key on the remote to exit the screensaver.
 
   ```bash
   adb shell "run-as fr.midiland.nextclouddream ls -la files/photos"            # fallback cache
-  adb shell "run-as fr.midiland.nextclouddream cat files/photo_index.json"     # photo list + date/GPS/place
+  adb shell "run-as fr.midiland.nextclouddream ls -la files/motion"            # live photo clips
+  adb shell "run-as fr.midiland.nextclouddream cat files/photo_index.json"     # photo list + date/GPS/place + live part
   ```
 
 ### Starting from scratch
@@ -284,7 +290,7 @@ Press any key on the remote to exit the screensaver.
 
   ```bash
   # Debug: clear the cache and the index, keep the configuration (full resync on next start)
-  adb shell "run-as fr.midiland.nextclouddream sh -c 'rm -rf files/photos/* files/photo_index.json'"
+  adb shell "run-as fr.midiland.nextclouddream sh -c 'rm -rf files/photos files/motion files/photo_index.json'"
 
   # Any build: erase all data, configuration included (same as "Clear data")
   adb shell pm clear fr.midiland.nextclouddream
@@ -321,6 +327,7 @@ Press any key on the remote to exit the screensaver.
 | "No photos available" | Server unreachable and fallback cache empty, or the folder is empty. Use **Test connection**. The app retries every 5 minutes. |
 | Error 401 | Wrong username or app password. |
 | Error 404 | Wrong folder path. It is relative to the account's root; a shared folder may have a different path. |
+| A live photo does not move | The clip was not ready in time, or could not be fetched (it is always optional). Check that **Play live photos** is on, that free space is above 30 MB, and look for "Clip indisponible" in the logs. A photo exported through Google Photos usually loses its motion part. |
 | No place name under the date | The photo has no GPS coordinates (camera without GPS), or the geocoder was unreachable: it retries at the next sync. |
 | Logs: "Aperçu indisponible … téléchargement de l'original" (preview unavailable, downloading original) | The server doesn't generate previews for this format (often HEIC). It still works, just more slowly. |
 | `adb: more than one device/emulator` | Add `-s <device>` (see `adb devices`). |

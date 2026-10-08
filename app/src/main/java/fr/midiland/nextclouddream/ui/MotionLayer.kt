@@ -126,7 +126,7 @@ class MotionLayer(context: Context) : TextureView(context) {
      * dimensions annoncées par MediaPlayer sont déjà celles de l'affichage (un `.mov`
      * d'iPhone codé en 1280×720 avec une rotation de 90° est annoncé 720×1280), et
      * l'image arrive déjà redressée sur la surface. Tourner une seconde fois donnait
-     * une vidéo couchée et étirée en plein écran — constaté à l'écran sur Android 12.
+     * une vidéo couchée et étirée en plein écran — constaté à l'écran sur Android 9.
      */
     private fun frameVideo(clipWidth: Int, clipHeight: Int, showWhole: Boolean) {
         val videoWidth = clipWidth.toFloat()
