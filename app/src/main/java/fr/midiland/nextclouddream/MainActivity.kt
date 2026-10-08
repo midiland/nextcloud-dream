@@ -1,15 +1,25 @@
 package fr.midiland.nextclouddream
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageInstaller
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
 import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import fr.midiland.nextclouddream.settings.SettingsManager
 import fr.midiland.nextclouddream.databinding.ActivityMainBinding
 import fr.midiland.nextclouddream.remote.HttpStatusException
 import fr.midiland.nextclouddream.remote.NextcloudWebDavClient
+import fr.midiland.nextclouddream.update.ApkInstaller
+import fr.midiland.nextclouddream.update.AppRelease
+import fr.midiland.nextclouddream.update.InstallResultReceiver
+import fr.midiland.nextclouddream.update.ReleaseChecker
 import fr.midiland.nextclouddream.worker.SyncWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -38,6 +48,110 @@ class MainActivity : AppCompatActivity() {
         enableDpadNavigation()
         binding.saveButton.setOnClickListener { saveAndSync() }
         binding.testButton.setOnClickListener { testConnection() }
+
+        // Inscrit pour toute la vie de l'activité, pas seulement quand elle est visible :
+        // le verdict de l'installation arrive pendant que l'écran système est au premier plan.
+        ContextCompat.registerReceiver(
+            this,
+            installResult,
+            IntentFilter(InstallResultReceiver.ACTION),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        checkForUpdate()
+    }
+
+    /**
+     * Cherche une version plus récente sur les releases GitHub, à l'ouverture de l'écran.
+     *
+     * Le bouton n'apparaît que si une mise à jour existe : un bouton qui ne fait rien
+     * dans la quasi-totalité des cas n'apprend rien à l'utilisateur. Un échec de la
+     * requête ne dit rien non plus — l'écran de configuration doit rester utilisable
+     * hors ligne, c'est même le cas le plus fréquent quand le serveur ne répond pas.
+     */
+    private fun checkForUpdate() {
+        val current = getString(R.string.update_current_version, BuildConfig.VERSION_NAME)
+        binding.updateStatus.text = current
+
+        lifecycleScope.launch {
+            val release = withContext(Dispatchers.IO) {
+                runCatching { ReleaseChecker().fetchLatest() }.getOrNull()
+            }
+            if (release == null) return@launch
+            if (release.versionCode <= BuildConfig.VERSION_CODE) {
+                binding.updateStatus.text =
+                    getString(R.string.update_up_to_date, BuildConfig.VERSION_NAME)
+                return@launch
+            }
+            binding.updateButton.text = getString(R.string.update_available, release.versionName)
+            binding.updateButton.visibility = View.VISIBLE
+            binding.updateButton.setOnClickListener { downloadAndInstall(release) }
+        }
+    }
+
+    /** Télécharge l'APK de [release], puis laisse le système demander confirmation. */
+    private fun downloadAndInstall(release: AppRelease) {
+        val installer = ApkInstaller(this)
+
+        if (!installer.canInstall()) {
+            // Autorisation « sources inconnues », à accorder une fois à cette application
+            binding.updateStatus.setText(R.string.update_permission_needed)
+            runCatching { startActivity(installer.unknownSourcesSettings()) }
+            return
+        }
+        if (!installer.hasRoomForUpdate()) {
+            binding.updateStatus.setText(R.string.update_no_room)
+            return
+        }
+
+        binding.updateButton.isEnabled = false
+        binding.updateStatus.setText(R.string.update_downloading)
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val apk = installer.downloadTarget()
+                    ReleaseChecker().download(release, apk)
+                    installer.install(apk)
+                }
+            }
+            binding.updateStatus.text = result.fold(
+                onSuccess = { getString(R.string.update_installing) },
+                onFailure = { getString(R.string.update_failed, describeError(it)) },
+            )
+            binding.updateButton.isEnabled = result.isFailure
+        }
+    }
+
+    /**
+     * Suite de l'installation, une fois l'écran système passé. Sans cela, un refus
+     * laisse l'écran sur « installation en cours » et le bouton grisé : l'utilisateur
+     * ne sait pas que c'est fini, ni pourquoi ça a échoué.
+     *
+     * Le cas le plus probable est de loin la signature : une release construite avec
+     * une autre clé que celle de la version installée.
+     */
+    private val installResult = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, Int.MIN_VALUE)
+            when (status) {
+                // Écran de confirmation : InstallResultReceiver s'en charge
+                PackageInstaller.STATUS_PENDING_USER_ACTION -> return
+                PackageInstaller.STATUS_SUCCESS ->
+                    binding.updateStatus.setText(R.string.update_installed)
+                PackageInstaller.STATUS_FAILURE_ABORTED ->
+                    // Annulé par l'utilisateur : rien à expliquer, on repropose
+                    binding.updateStatus.text = getString(R.string.update_current_version, BuildConfig.VERSION_NAME)
+                PackageInstaller.STATUS_FAILURE_CONFLICT ->
+                    binding.updateStatus.setText(R.string.update_signature_mismatch)
+                else ->
+                    binding.updateStatus.text = getString(R.string.update_refused, status)
+            }
+            binding.updateButton.isEnabled = status != PackageInstaller.STATUS_SUCCESS
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(installResult)
     }
 
     /**

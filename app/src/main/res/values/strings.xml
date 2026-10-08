@@ -40,4 +40,18 @@
     <string name="error_certificate">Secure connection failed: the server certificate is not valid.</string>
     <string name="error_invalid_url">Invalid URL: it must start with https://</string>
     <string name="error_generic">Error: %1$s</string>
+
+    <!-- In-app update from the GitHub releases -->
+    <string name="update_checking">Looking for an update…</string>
+    <string name="update_up_to_date">Version %1$s — up to date</string>
+    <string name="update_available">Update to %1$s</string>
+    <string name="update_current_version">Version %1$s</string>
+    <string name="update_downloading">Downloading the update…</string>
+    <string name="update_installing">Installing: confirm on the next screen.</string>
+    <string name="update_permission_needed">Allow Nextcloud Dream to install apps, then try again.</string>
+    <string name="update_no_room">Not enough space on the device to install the update.</string>
+    <string name="update_failed">Update failed: %1$s</string>
+    <string name="update_installed">Update installed.</string>
+    <string name="update_signature_mismatch">Install refused: this update is not signed with the same key as the installed version.</string>
+    <string name="update_refused">Install refused by the system (code %1$d).</string>
 </resources>

@@ -67,11 +67,25 @@ Les objets partagés passent par **`AppContainer`** (`context.container`) : un s
 | `image/Framing.kt`, `image/ImageResizer.kt` | Règle de cadrage partagée ; réduction sur l'appareil avec contournement Android 9 « invalid scale » |
 | `settings/SettingsManager.kt` | `SharedPreferences` classiques (`nextcloud_dream_prefs`). Seul le mot de passe est chiffré (`app_password_encrypted`), via `KeystoreCipher`, puis gardé déchiffré en mémoire |
 | `settings/KeystoreCipher.kt` | AES-256-GCM, clé `nextcloud_dream_app_password` dans l'Android Keystore. Format : Base64(IV de 12 octets + texte chiffré). `decrypt` renvoie null si la clé est perdue : seul le mot de passe est alors à ressaisir |
+| `update/ReleaseParser.kt` | Lecture de l'API GitHub `/releases/latest` : tag → `versionCode` (**même formule que `parseAppVersion` dans `build.gradle.kts`**, les deux doivent rester d'accord) et URL de l'APK. Indépendant d'Android, testé sur la JVM. Refuse un tag hors format, une release sans APK, et une URL non HTTPS |
+| `update/ReleaseChecker.kt` | Requête GitHub et téléchargement de l'APK (OkHttp). Bloquant, à appeler depuis `Dispatchers.IO` |
+| `update/ApkInstaller.kt` | Remise de l'APK au `PackageInstaller` du système, autorisation « sources inconnues » (`canRequestPackageInstalls`), seuil d'espace disque. `InstallResultReceiver` ouvre l'écran de confirmation que le système renvoie (`STATUS_PENDING_USER_ACTION`) |
 | `worker/SyncWorker.kt` | WorkManager, contrainte réseau. `failure()` sur une erreur permanente, sinon `retry()` (3 au plus) |
 
 **Tests** (`app/src/test`, `./gradlew testDebugUnitTest`, 30 tests, aussi exécutés en CI) : `PhotoPlaylist`, `SlideSource` (en ligne, indisponible, hors ligne avec horloge simulée, cache sans index, métadonnées), `PhotoCacheManager` (dont une **valeur de référence de `keyFor`**, qui ne doit jamais changer), `PhotoIndexStore`, `PhotoMetadata`, `MultistatusParser`. `testOptions.unitTests.isReturnDefaultValues = true`. org.json et kxml2 sont ajoutés en `testImplementation`.
 
 **Couverture** : `./gradlew jacocoTestReport` (tâche déclarée dans `app/build.gradle.kts`, dépend de `testDebugUnitTest`). Rapports dans `app/build/reports/jacoco/jacocoTestReport/` : HTML pour la lecture, XML, et **CSV** lu par le générateur de badge en CI. `enableUnitTestCoverage = true` sur le build type `debug` ; le code généré (R, BuildConfig, viewBinding) est exclu. État au 2026-10-07 : **22,6 % des lignes** (instructions 22,8 %). Par paquet : `storage` 88 %, `dream` 36 %, `remote` 22 %, `photos` 21 %, et 0 % pour `ui`, `settings`, `worker`, `image` et `NextcloudDreamApp`, qui dépendent d'Android et ne sont pas atteignables depuis la JVM.
+
+### Mise à jour depuis l'application
+
+`MainActivity.checkForUpdate()` interroge les releases GitHub à l'ouverture de l'écran de configuration. Le bouton n'apparaît **que** si une version plus récente existe ; une requête en échec ne dit rien, l'écran devant rester utilisable hors ligne. Points à connaître :
+
+- **La signature doit être identique** à celle de la version installée, sinon Android refuse la mise à jour. Tant que la CI signe avec la clé debug du runner (secrets `SIGNING_*` absents), le bouton échoue systématiquement.
+- `REQUEST_INSTALL_PACKAGES` dans le manifeste, **plus** l'autorisation par application (« sources inconnues ») que l'utilisateur accorde une fois. Sans elle, on l'envoie sur `ACTION_MANAGE_UNKNOWN_APP_SOURCES`.
+- Pas d'installation silencieuse possible : il faudrait être device owner ou application système. L'écran de confirmation du système est incontournable.
+- API GitHub non authentifiée : 60 requêtes/heure par IP. Suffisant pour une vérification à l'ouverture de l'écran, pas pour une vérification périodique.
+- **Vérifié sur l'émulateur Android TV 9** le 2026-10-08, API GitHub simulée en HTTPS (autorité de confiance installée dans le magasin système, `api.github.com` redirigé par `/system/etc/hosts` + `adb reverse`) : parcours complet 1.0.0 → 1.0.1 avec deux APK signés de la même clé, cas « à jour », et refus propre avec deux clés différentes. Jamais essayé sur la Mi Box.
+- Le verdict de l'installation arrive pendant que l'écran système est au premier plan : le récepteur de `MainActivity` est donc inscrit de `onCreate` à `onDestroy`, pas de `onStart` à `onStop` — sinon l'écran reste sur « installation en cours » après un échec (bug trouvé au test).
 
 ### Invariants à respecter
 

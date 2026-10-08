@@ -39,4 +39,18 @@
     <string name="error_certificate">Connexion sécurisée impossible : le certificat du serveur n\'est pas valide.</string>
     <string name="error_invalid_url">URL invalide : elle doit commencer par https://</string>
     <string name="error_generic">Erreur : %1$s</string>
+
+    <!-- Mise à jour de l'application depuis les releases GitHub -->
+    <string name="update_checking">Recherche d\'une mise à jour…</string>
+    <string name="update_up_to_date">Version %1$s — à jour</string>
+    <string name="update_available">Mettre à jour vers %1$s</string>
+    <string name="update_current_version">Version %1$s</string>
+    <string name="update_downloading">Téléchargement de la mise à jour…</string>
+    <string name="update_installing">Installation : confirmez sur l\'écran suivant.</string>
+    <string name="update_permission_needed">Autorisez Nextcloud Dream à installer des applications, puis réessayez.</string>
+    <string name="update_no_room">Espace insuffisant sur l\'appareil pour installer la mise à jour.</string>
+    <string name="update_failed">Mise à jour impossible : %1$s</string>
+    <string name="update_installed">Mise à jour installée.</string>
+    <string name="update_signature_mismatch">Installation refusée : cette mise à jour n\'est pas signée avec la même clé que la version installée.</string>
+    <string name="update_refused">Installation refusée par le système (code %1$d).</string>
 </resources>

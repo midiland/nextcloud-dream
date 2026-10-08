@@ -4,6 +4,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Bouton de mise à jour : remise de l'APK au programme d'installation du système.
+         L'utilisateur doit en plus autoriser l'application dans « Sources inconnues ». -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Application TV : pas d'écran tactile, launcher Leanback -->
     <uses-feature
         android:name="android.software.leanback"
@@ -47,6 +51,15 @@
                 android:name="android.service.dream"
                 android:resource="@xml/dream_nextcloud" />
         </service>
+
+        <!-- Avancement de l'installation : c'est par là qu'arrive l'écran de confirmation -->
+        <receiver
+            android:name=".update.InstallResultReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="fr.midiland.nextclouddream.INSTALL_RESULT" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>
