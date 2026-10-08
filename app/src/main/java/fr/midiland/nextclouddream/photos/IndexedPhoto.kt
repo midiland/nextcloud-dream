@@ -12,4 +12,8 @@ data class IndexedPhoto(
     val fileId: Long?,
     /** null tant que l'EXIF n'a pas pu être lu (nouvel essai à la synchro suivante). */
     val metadata: PhotoMetadata?,
+    /** Taille du fichier d'origine, nécessaire pour situer la vidéo d'un Motion Photo. */
+    val size: Long = 0L,
+    /** Vidéo d'une photo animée. null = pas encore examinée (voir [MotionRef]). */
+    val motion: MotionRef? = null,
 )

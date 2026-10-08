@@ -55,6 +55,56 @@ class MultistatusParserTest {
         </d:multistatus>
     """.trimIndent()
 
+    // Paire Live Photo telle que le serveur la renvoie : chaque fichier porte le fileid
+    // de son jumeau, et la propriété revient une seconde fois, vide, dans le bloc 404
+    private val livePhotoResponse = """
+        <?xml version="1.0"?>
+        <d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
+          <d:response>
+            <d:href>/remote.php/dav/files/bob/Photos/ScreenSaver/IMG_0707.jpg</d:href>
+            <d:propstat>
+              <d:prop>
+                <d:resourcetype/>
+                <d:getetag>&quot;aaa&quot;</d:getetag>
+                <d:getcontentlength>6416384</d:getcontentlength>
+                <oc:fileid>2067820</oc:fileid>
+                <nc:metadata-files-live-photo>2067821</nc:metadata-files-live-photo>
+              </d:prop>
+              <d:status>HTTP/1.1 200 OK</d:status>
+            </d:propstat>
+          </d:response>
+          <d:response>
+            <d:href>/remote.php/dav/files/bob/Photos/ScreenSaver/IMG_0707.mov</d:href>
+            <d:propstat>
+              <d:prop>
+                <d:resourcetype/>
+                <d:getetag>&quot;bbb&quot;</d:getetag>
+                <d:getcontentlength>6115328</d:getcontentlength>
+                <oc:fileid>2067821</oc:fileid>
+                <nc:metadata-files-live-photo>2067820</nc:metadata-files-live-photo>
+              </d:prop>
+              <d:status>HTTP/1.1 200 OK</d:status>
+            </d:propstat>
+          </d:response>
+          <d:response>
+            <d:href>/remote.php/dav/files/bob/Photos/ScreenSaver/ordinaire.jpg</d:href>
+            <d:propstat>
+              <d:prop>
+                <d:resourcetype/>
+                <d:getetag>&quot;ccc&quot;</d:getetag>
+                <d:getcontentlength>1024</d:getcontentlength>
+                <oc:fileid>2067830</oc:fileid>
+              </d:prop>
+              <d:status>HTTP/1.1 200 OK</d:status>
+            </d:propstat>
+            <d:propstat>
+              <d:prop><nc:metadata-files-live-photo/></d:prop>
+              <d:status>HTTP/1.1 404 Not Found</d:status>
+            </d:propstat>
+          </d:response>
+        </d:multistatus>
+    """.trimIndent()
+
     private val requestUrl = "https://cloud.example.com/remote.php/dav/files/bob/Photos/ScreenSaver/".toHttpUrl()
 
     private fun parse(xml: String): List<DavEntry> {
@@ -105,5 +155,54 @@ class MultistatusParserTest {
         assertFalse(NextcloudWebDavClient.isImage("sans_extension"))
         assertFalse(NextcloudWebDavClient.mayHaveExif("capture.png"))
         assertTrue(NextcloudWebDavClient.mayHaveExif("photo.heic"))
+    }
+
+    @Test
+    fun `les videos sont reconnues sans etre prises pour des photos`() {
+        assertTrue(NextcloudWebDavClient.isVideo("IMG_0707.MOV"))
+        assertTrue(NextcloudWebDavClient.isVideo("clip.mp4"))
+        assertFalse(NextcloudWebDavClient.isVideo("photo.jpg"))
+        assertFalse(NextcloudWebDavClient.isImage("IMG_0707.MOV"))
+    }
+
+    @Test
+    fun `fileid du jumeau d'une live photo`() {
+        val (photo, video, ordinaire) = parse(livePhotoResponse)
+
+        assertEquals(2067820L, photo.fileId)
+        assertEquals(2067821L, photo.livePhotoFileId)
+        assertEquals(2067821L, video.fileId)
+        assertEquals(2067820L, video.livePhotoFileId)
+        // Photo ordinaire : la propriété est renvoyée vide, elle ne doit rien valoir
+        assertNull(ordinaire.livePhotoFileId)
+    }
+
+    /**
+     * Le serveur peut répéter la propriété, vide, dans un second bloc : la valeur lue
+     * dans le bloc 200 ne doit pas être effacée par celle du bloc 404 qui la suit.
+     */
+    @Test
+    fun `propriete repetee vide apres une valeur`() {
+        val xml = """
+            <?xml version="1.0"?>
+            <d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
+              <d:response>
+                <d:href>/remote.php/dav/files/bob/Photos/ScreenSaver/IMG_0707.jpg</d:href>
+                <d:propstat>
+                  <d:prop>
+                    <oc:fileid>2067820</oc:fileid>
+                    <nc:metadata-files-live-photo>2067821</nc:metadata-files-live-photo>
+                  </d:prop>
+                  <d:status>HTTP/1.1 200 OK</d:status>
+                </d:propstat>
+                <d:propstat>
+                  <d:prop><nc:metadata-files-live-photo/></d:prop>
+                  <d:status>HTTP/1.1 404 Not Found</d:status>
+                </d:propstat>
+              </d:response>
+            </d:multistatus>
+        """.trimIndent()
+
+        assertEquals(2067821L, parse(xml).single().livePhotoFileId)
     }
 }

@@ -104,6 +104,12 @@
             style="@style/ConfigCheckBox"
             android:text="@string/config_show_photo_info" />
 
+        <!-- Chaque clip coûte quelques Mo de plus que la photo : on peut le refuser -->
+        <CheckBox
+            android:id="@+id/play_live_photos"
+            style="@style/ConfigCheckBox"
+            android:text="@string/config_play_live_photos" />
+
         <!-- Au-dessus des boutons : placé en dessous, le message de résultat restait
              sous le bord de l'écran au moment précis où l'on appuyait. -->
         <TextView

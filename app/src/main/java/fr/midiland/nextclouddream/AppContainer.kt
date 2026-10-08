@@ -24,6 +24,13 @@ class AppContainer(context: Context) {
         PhotoRepository(
             settings = settings,
             cache = PhotoCacheManager(File(appContext.filesDir, "photos"), appContext.getSystemService()),
+            // Dossier à part : les clips des photos animées ne doivent pas prendre
+            // la place des photos qui font tenir le diaporama hors connexion
+            motionCache = PhotoCacheManager(
+                File(appContext.filesDir, "motion"),
+                appContext.getSystemService(),
+                suffix = PhotoCacheManager.MOTION_SUFFIX,
+            ),
             indexStore = PhotoIndexStore(File(appContext.filesDir, "photo_index.json")),
             placeResolver = PlaceResolver(appContext),
         )

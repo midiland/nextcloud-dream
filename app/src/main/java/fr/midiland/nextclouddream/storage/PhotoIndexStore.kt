@@ -2,6 +2,7 @@ package fr.midiland.nextclouddream.storage
 
 import androidx.core.util.AtomicFile
 import fr.midiland.nextclouddream.photos.IndexedPhoto
+import fr.midiland.nextclouddream.photos.MotionRef
 import fr.midiland.nextclouddream.photos.PhotoMetadata
 import org.json.JSONArray
 import org.json.JSONObject
@@ -53,14 +54,20 @@ class PhotoIndexStore(indexFile: File) {
         put(KEY_NAME, photo.name)
         photo.fileId?.let { put(KEY_FILE_ID, it) }
         photo.metadata?.let { put(KEY_METADATA, it.toJsonObject()) }
+        if (photo.size > 0) put(KEY_SIZE, photo.size)
+        photo.motion?.let { put(KEY_MOTION, it.toJsonObject()) }
     }
 
+    // Champ "motion" absent (index écrit par une version antérieure) → null, donc
+    // la photo est examinée à la prochaine synchro : l'ancien index reste utilisable
     private fun fromJson(obj: JSONObject) = IndexedPhoto(
         key = obj.getString(KEY_KEY),
         url = obj.getString(KEY_URL),
         name = obj.getString(KEY_NAME),
         fileId = if (obj.has(KEY_FILE_ID)) obj.getLong(KEY_FILE_ID) else null,
         metadata = obj.optJSONObject(KEY_METADATA)?.let(PhotoMetadata::fromJsonObject),
+        size = obj.optLong(KEY_SIZE),
+        motion = obj.optJSONObject(KEY_MOTION)?.let(MotionRef::fromJsonObject),
     )
 
     private companion object {
@@ -69,5 +76,7 @@ class PhotoIndexStore(indexFile: File) {
         const val KEY_NAME = "name"
         const val KEY_FILE_ID = "fileId"
         const val KEY_METADATA = "metadata"
+        const val KEY_SIZE = "size"
+        const val KEY_MOTION = "motion"
     }
 }

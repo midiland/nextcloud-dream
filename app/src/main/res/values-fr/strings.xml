@@ -16,6 +16,7 @@
     <string name="config_max_cache">Cache de secours hors connexion (Mo, ~400 Ko par photo)</string>
     <string name="config_show_clock">Afficher la date et l\'heure</string>
     <string name="config_show_photo_info">Afficher la date et le lieu de la photo</string>
+    <string name="config_play_live_photos">Animer les photos live (iPhone et Pixel)</string>
     <string name="config_save">Enregistrer et synchroniser</string>
     <string name="config_test">Tester la connexion</string>
     <string name="config_incomplete">Renseignez l\'URL, l\'identifiant et le mot de passe d\'application.</string>

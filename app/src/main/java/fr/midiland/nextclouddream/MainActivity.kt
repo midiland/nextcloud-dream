@@ -205,7 +205,7 @@ class MainActivity : AppCompatActivity() {
     private fun enableDpadNavigation() = with(binding) {
         val parcours = listOf<View>(
             serverUrl, username, appPassword, showPassword, folderPath,
-            slideInterval, syncInterval, maxCache, showClock, showPhotoInfo,
+            slideInterval, syncInterval, maxCache, showClock, showPhotoInfo, playLivePhotos,
             saveButton, testButton, screensaverSettingsButton, updateButton,
         )
         parcours.forEach { vue -> vue.moveFocusAlong(parcours) }
@@ -242,7 +242,11 @@ class MainActivity : AppCompatActivity() {
     private fun fieldValues(): List<String> = with(binding) {
         listOf(serverUrl, username, appPassword, folderPath, slideInterval, syncInterval, maxCache)
             .map { it.text.toString() } +
-            listOf(showClock.isChecked.toString(), showPhotoInfo.isChecked.toString())
+            listOf(
+                showClock.isChecked.toString(),
+                showPhotoInfo.isChecked.toString(),
+                playLivePhotos.isChecked.toString(),
+            )
     }
 
     /**
@@ -277,6 +281,7 @@ class MainActivity : AppCompatActivity() {
         maxCache.setText(settings.maxCacheMb.toString())
         showClock.isChecked = settings.showClock
         showPhotoInfo.isChecked = settings.showPhotoInfo
+        playLivePhotos.isChecked = settings.playLivePhotos
     }
 
     private fun saveAndSync() {
@@ -290,6 +295,7 @@ class MainActivity : AppCompatActivity() {
             maxCache.text.toString().toIntOrNull()?.let { settings.maxCacheMb = it }
             settings.showClock = showClock.isChecked
             settings.showPhotoInfo = showPhotoInfo.isChecked
+            settings.playLivePhotos = playLivePhotos.isChecked
         }
         // Réaffiche les valeurs normalisées (bornes, slash final retiré…)
         loadSettings()

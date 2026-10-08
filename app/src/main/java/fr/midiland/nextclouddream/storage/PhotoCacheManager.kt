@@ -17,11 +17,17 @@ import java.security.MessageDigest
  *
  * Stocké dans filesDir/photos (et non cacheDir) : Android peut vider cacheDir quand
  * l'espace manque, ce qui casserait le fonctionnement hors connexion.
+ *
+ * La même classe gère les clips des photos animées, dans un dossier distinct et avec
+ * un autre suffixe : ils ne doivent pas occuper la place réservée aux photos du cache
+ * de secours, qui est ce qui fait tenir le diaporama hors connexion.
  */
 class PhotoCacheManager(
     val directory: File,
     /** null en test : seul l'espace libre brut du dossier est alors vérifié. */
     private val storageManager: StorageManager?,
+    /** Extension des fichiers gérés : ".jpg" pour les photos, ".mp4" pour les clips. */
+    private val suffix: String = PHOTO_SUFFIX,
 ) {
     init {
         directory.mkdirs()
@@ -30,10 +36,10 @@ class PhotoCacheManager(
     /** Photos complètes présentes en cache (les fichiers temporaires sont exclus). */
     fun listPhotos(): List<File> =
         directory.listFiles()
-            ?.filter { it.isFile && it.name.endsWith(PHOTO_SUFFIX) }
+            ?.filter { it.isFile && it.name.endsWith(suffix) }
             .orEmpty()
 
-    fun fileFor(key: String): File = File(directory, "$key$PHOTO_SUFFIX")
+    fun fileFor(key: String): File = File(directory, "$key$suffix")
 
     /**
      * Fichier de travail pour un téléchargement en cours (jamais listé comme photo).
@@ -92,7 +98,7 @@ class PhotoCacheManager(
         val staleBefore = System.currentTimeMillis() - STALE_TEMP_MS
         directory.listFiles()
             ?.filter { file ->
-                if (file.name.endsWith(PHOTO_SUFFIX)) file.name.removeSuffix(PHOTO_SUFFIX) !in keys
+                if (file.name.endsWith(suffix)) file.name.removeSuffix(suffix) !in keys
                 else file.lastModified() < staleBefore
             }
             ?.forEach { file ->
@@ -115,7 +121,8 @@ class PhotoCacheManager(
     }
 
     companion object {
-        private const val PHOTO_SUFFIX = ".jpg"
+        const val PHOTO_SUFFIX = ".jpg"
+        const val MOTION_SUFFIX = ".mp4"
         private const val TEMP_SUFFIX = ".part"
         private const val STALE_TEMP_MS = 60 * 60_000L
 

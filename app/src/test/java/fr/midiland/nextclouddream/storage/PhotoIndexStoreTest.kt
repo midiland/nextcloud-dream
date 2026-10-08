@@ -1,6 +1,7 @@
 package fr.midiland.nextclouddream.storage
 
 import fr.midiland.nextclouddream.photos.IndexedPhoto
+import fr.midiland.nextclouddream.photos.MotionRef
 import fr.midiland.nextclouddream.photos.PhotoMetadata
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -42,6 +43,55 @@ class PhotoIndexStoreTest {
         assertEquals("k1", photo.key)
         assertNull(photo.fileId)
         assertNull(photo.metadata)
+        // null et non None : la photo n'a jamais été examinée, elle le sera à la synchro
+        assertNull(photo.motion)
+    }
+
+    /** Les trois formes de référence doivent revenir identiques. */
+    @Test
+    fun `aller-retour des photos animees`() {
+        val photos = listOf(
+            IndexedPhoto(
+                key = "live",
+                url = "https://cloud.example.com/IMG_0707.jpg",
+                name = "IMG_0707.jpg",
+                fileId = 2067820L,
+                metadata = null,
+                size = 6_416_384L,
+                motion = MotionRef.Sidecar("https://cloud.example.com/IMG_0707.mov", 6_115_328L),
+            ),
+            IndexedPhoto(
+                key = "pixel",
+                url = "https://cloud.example.com/PXL.jpg",
+                name = "PXL.jpg",
+                fileId = 3L,
+                metadata = null,
+                size = 6_281_220L,
+                motion = MotionRef.Trailer("https://cloud.example.com/PXL.jpg", 2_668_677L, 3_612_543L, 1_043_541L),
+            ),
+            IndexedPhoto(
+                key = "fixe",
+                url = "https://cloud.example.com/c.jpg",
+                name = "c.jpg",
+                fileId = 4L,
+                metadata = null,
+                size = 1_024L,
+                motion = MotionRef.None,
+            ),
+        )
+        store.save(photos)
+        assertEquals(photos, PhotoIndexStore(indexFile).load())
+    }
+
+    /** Un Motion Photo dont l'appareil n'a pas indiqué la position de l'image fixe. */
+    @Test
+    fun `trailer sans horodatage`() {
+        val photo = IndexedPhoto(
+            key = "k", url = "https://x/a.jpg", name = "a.jpg", fileId = null, metadata = null,
+            motion = MotionRef.Trailer("https://x/a.jpg", 10L, 20L, startUs = null),
+        )
+        store.save(listOf(photo))
+        assertEquals(photo, PhotoIndexStore(indexFile).load().single())
     }
 
     @Test

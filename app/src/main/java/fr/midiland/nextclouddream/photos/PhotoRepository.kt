@@ -3,6 +3,7 @@ package fr.midiland.nextclouddream.photos
 import fr.midiland.nextclouddream.image.ImageResizer
 import fr.midiland.nextclouddream.remote.ExifReader
 import fr.midiland.nextclouddream.remote.HttpStatusException
+import fr.midiland.nextclouddream.remote.MotionPhoto
 import fr.midiland.nextclouddream.remote.NextcloudWebDavClient
 import fr.midiland.nextclouddream.remote.PlaceResolver
 import fr.midiland.nextclouddream.settings.SettingsManager
@@ -32,6 +33,8 @@ import java.io.File
 class PhotoRepository(
     private val settings: SettingsManager,
     private val cache: PhotoCacheManager,
+    /** Clips des photos animées : dossier et plafond distincts du cache de secours. */
+    private val motionCache: PhotoCacheManager,
     private val indexStore: PhotoIndexStore,
     private val placeResolver: PlaceResolver,
 ) : PhotoSource {
@@ -61,7 +64,20 @@ class PhotoRepository(
                 val previous = indexStore.load().associateBy { it.key }
                 var index = remotePhotos.map { remote ->
                     val key = PhotoCacheManager.keyFor(remote.url.toString(), remote.etag)
-                    IndexedPhoto(key, remote.url.toString(), remote.name, remote.fileId, previous[key]?.metadata)
+                    val known = previous[key]
+                    IndexedPhoto(
+                        key = key,
+                        url = remote.url.toString(),
+                        name = remote.name,
+                        fileId = remote.fileId,
+                        metadata = known?.metadata,
+                        size = remote.size,
+                        // La vidéo d'une Live Photo est connue dès le listing ; celle d'un
+                        // Motion Photo est cherchée plus bas, avec l'EXIF. Un jumeau que le
+                        // serveur ne signale plus doit disparaître de l'index.
+                        motion = remote.sidecar?.let { MotionRef.Sidecar(it.url.toString(), it.size) }
+                            ?: known?.motion?.takeUnless { it is MotionRef.Sidecar },
+                    )
                 }
                 indexStore.save(index)
                 cache.retainOnly(index.map { it.key }.toSet())
@@ -78,16 +94,17 @@ class PhotoRepository(
                     if (runCatching { downloadToCache(client, photo) }.isSuccess) prewarmed++
                 }
 
-                // 3. Métadonnées (date, GPS, lieu) des nouvelles photos, sauvegardées
-                //    régulièrement pour que l'économiseur les affiche sans attendre la fin
+                // 3. Métadonnées (date, GPS, lieu) et vidéo embarquée des nouvelles photos,
+                //    sauvegardées régulièrement pour que l'économiseur les affiche sans
+                //    attendre la fin
                 var enriched = 0
                 var lastSave = System.currentTimeMillis()
                 val updated = index.toMutableList()
                 for (i in updated.indices) {
                     ensureActive()
-                    val metadata = completeMetadata(client, updated[i])
-                    if (metadata != updated[i].metadata) {
-                        updated[i] = updated[i].copy(metadata = metadata)
+                    val details = completeDetails(client, updated[i])
+                    if (details.metadata != updated[i].metadata || details.motion != updated[i].motion) {
+                        updated[i] = updated[i].copy(metadata = details.metadata, motion = details.motion)
                         enriched++
                         if (System.currentTimeMillis() - lastSave > SAVE_INTERVAL_MS) {
                             indexStore.save(updated)
@@ -98,9 +115,12 @@ class PhotoRepository(
                 index = updated
                 indexStore.save(index)
 
+                // Les clips ne sont gardés que pour les photos qui en ont encore une
+                motionCache.retainOnly(index.filter { it.motion.hasVideo }.map { it.key }.toSet())
+
                 Timber.i(
-                    "Synchro : %d photo(s), %d métadonnée(s) lue(s), %d préchargée(s), %d en cache",
-                    index.size, enriched, prewarmed, cache.listPhotos().size,
+                    "Synchro : %d photo(s) dont %d animée(s), %d métadonnée(s) lue(s), %d préchargée(s), %d en cache",
+                    index.size, index.count { it.motion.hasVideo }, enriched, prewarmed, cache.listPhotos().size,
                 )
                 index.size
             }.onFailure { e ->
@@ -140,6 +160,63 @@ class PhotoRepository(
     suspend fun evict(key: String) = withContext(Dispatchers.IO) { cache.evict(key) }
 
     /**
+     * Clip d'une photo animée, depuis le cache des clips ou téléchargé maintenant
+     * (un simple GET pour une Live Photo, une requête Range pour un Motion Photo).
+     *
+     * **Ne lève jamais et n'est jamais indispensable** : une photo sans clip s'affiche
+     * normalement, sans animation. C'est ce qui permet de ne rien casser quand le
+     * réglage est désactivé, le stockage saturé, le serveur injoignable ou le format
+     * inattendu.
+     *
+     * @return le fichier du clip, ou null s'il n'y en a pas (ou pas encore).
+     */
+    suspend fun fetchMotion(key: String, motion: MotionRef?): File? = withContext(Dispatchers.IO) {
+        if (!settings.playLivePhotos || !motion.hasVideo) return@withContext null
+
+        val cached = motionCache.fileFor(key)
+        if (cached.exists()) {
+            motionCache.touch(cached)
+            return@withContext cached
+        }
+        if (!settings.isConfigured) return@withContext null
+
+        val bytes = motion?.byteCount ?: 0L
+        if (bytes <= 0 || bytes > MAX_MOTION_BYTES) {
+            Timber.i("Clip de %s ignoré : %d Ko", key, bytes / 1024)
+            return@withContext null
+        }
+        if (!motionCache.hasRoomForDownload()) {
+            Timber.i("Stockage presque plein : clip de %s non téléchargé", key)
+            return@withContext null
+        }
+
+        try {
+            val client = client()
+            val file = motionCache.store(key) { destination ->
+                when (motion) {
+                    is MotionRef.Sidecar -> client.download(motion.url.toHttpUrl(), destination)
+                    is MotionRef.Trailer -> client.downloadRange(
+                        url = motion.url.toHttpUrl(),
+                        from = motion.start,
+                        to = motion.start + motion.length - 1,
+                        destination = destination,
+                    )
+                    // hasVideo a déjà écarté ce cas
+                    MotionRef.None, null -> error("Aucune vidéo pour $key")
+                }
+            }
+            motionCache.trim(MOTION_CACHE_BYTES)
+            Timber.d("Clip : %s → %d Ko", key, file.length() / 1024)
+            file
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w("Clip indisponible pour %s (%s)", key, e.message)
+            null
+        }
+    }
+
+    /**
      * Télécharge une photo dans le cache : aperçu réduit par le serveur si possible,
      * sinon l'original, réduit sur l'appareil. Puis applique la limite de taille du cache.
      */
@@ -174,45 +251,83 @@ class PhotoRepository(
         }
     }
 
+    /** Ce qu'une seule lecture du début du fichier permet de connaître. */
+    private class PhotoDetails(val metadata: PhotoMetadata?, val motion: MotionRef?)
+
     /**
-     * Métadonnées d'une photo : lues dans l'EXIF si inconnues, et lieu calculé
-     * si la photo a des coordonnées GPS mais pas encore de nom de lieu.
+     * Métadonnées et vidéo embarquée d'une photo. Les deux viennent du même début de
+     * fichier : une seule lecture suffit, et elle n'a lieu que s'il manque l'une ou
+     * l'autre. Le lieu est calculé si la photo a des coordonnées GPS sans nom de lieu.
      */
-    private fun completeMetadata(client: NextcloudWebDavClient, photo: IndexedPhoto): PhotoMetadata? {
-        val metadata = photo.metadata ?: readRemoteMetadata(client, photo) ?: return null
+    private fun completeDetails(client: NextcloudWebDavClient, photo: IndexedPhoto): PhotoDetails {
+        // Une Live Photo a été repérée au listing : son jumeau ne se lit pas dans le JPEG
+        val knownMotion = photo.motion
+        if (photo.metadata != null && knownMotion != null) {
+            return PhotoDetails(withPlace(photo.metadata), knownMotion)
+        }
+        val read = readRemoteDetails(client, photo)
+        return PhotoDetails(
+            metadata = (photo.metadata ?: read?.metadata)?.let(::withPlace),
+            motion = knownMotion ?: read?.motion,
+        )
+    }
+
+    private fun withPlace(metadata: PhotoMetadata): PhotoMetadata {
         if (metadata.place != null || metadata.latitude == null || metadata.longitude == null) return metadata
         return metadata.copy(place = placeResolver.resolve(metadata.latitude, metadata.longitude))
     }
 
     /**
-     * EXIF d'une photo distante. JPEG : seulement le début du fichier.
-     * HEIC : l'EXIF peut être n'importe où, on télécharge tout (si l'espace le permet).
-     * PNG / WebP : pas d'EXIF en pratique, rien à télécharger.
+     * EXIF et vidéo embarquée d'une photo distante. JPEG : seulement le début du
+     * fichier, qui porte les deux. HEIC : l'EXIF peut être n'importe où, on télécharge
+     * tout (si l'espace le permet). PNG / WebP : pas d'EXIF en pratique, rien à lire.
      * @return null en cas d'erreur réseau (nouvel essai à la prochaine synchro).
      */
-    private fun readRemoteMetadata(client: NextcloudWebDavClient, photo: IndexedPhoto): PhotoMetadata? =
+    private fun readRemoteDetails(client: NextcloudWebDavClient, photo: IndexedPhoto): PhotoDetails? =
         try {
             val url = photo.url.toHttpUrl()
-            if (NextcloudWebDavClient.isJpeg(photo.name)) {
-                ExifReader.read(photo.name, client.readHead(url, EXIF_HEAD_BYTES))
-            } else if (!NextcloudWebDavClient.mayHaveExif(photo.name)) {
-                PhotoMetadata()
-            } else if (!cache.hasRoomForDownload()) {
-                Timber.w("Stockage presque plein : métadonnées de %s lues plus tard", photo.name)
-                null
-            } else {
-                val original = cache.tempFileFor(photo.key, "exif")
-                try {
-                    client.download(url, original)
-                    ExifReader.read(original)
-                } finally {
-                    original.delete()
+            when {
+                NextcloudWebDavClient.isJpeg(photo.name) -> {
+                    val head = client.readHead(url, EXIF_HEAD_BYTES)
+                    PhotoDetails(ExifReader.read(photo.name, head), trailerOf(photo, head))
+                }
+                // Les formats sans EXIF n'ont pas de vidéo embarquée non plus
+                !NextcloudWebDavClient.mayHaveExif(photo.name) -> PhotoDetails(PhotoMetadata(), MotionRef.None)
+                !cache.hasRoomForDownload() -> {
+                    Timber.w("Stockage presque plein : métadonnées de %s lues plus tard", photo.name)
+                    null
+                }
+                else -> {
+                    val original = cache.tempFileFor(photo.key, "exif")
+                    try {
+                        client.download(url, original)
+                        PhotoDetails(ExifReader.read(original), MotionRef.None)
+                    } finally {
+                        original.delete()
+                    }
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Timber.w("Métadonnées illisibles pour %s (%s)", photo.name, e.message)
             null
         }
+
+    /**
+     * Vidéo collée à la fin du JPEG, si le XMP en décrit une. La taille du fichier vient
+     * du listing : sans elle, impossible de situer la vidéo dans le fichier.
+     */
+    private fun trailerOf(photo: IndexedPhoto, head: ByteArray): MotionRef {
+        val trailer = MotionPhoto.findTrailer(head) ?: return MotionRef.None
+        val start = photo.size - trailer.offsetFromEnd
+        if (start <= 0) {
+            Timber.w("Vidéo annoncée hors des limites de %s (%d octets)", photo.name, photo.size)
+            return MotionRef.None
+        }
+        Timber.i("Photo animée : %s (clip de %d Ko)", photo.name, trailer.length / 1024)
+        return MotionRef.Trailer(photo.url, start, trailer.length, trailer.startUs)
+    }
 
     private fun maxCacheBytes() = settings.maxCacheMb * 1024L * 1024L
 
@@ -234,6 +349,14 @@ class PhotoRepository(
 
         // Taille moyenne observée d'un aperçu (~1 Mo) : borne le préchargement au plafond du cache
         const val AVERAGE_PREVIEW_BYTES = 1024L * 1024L
+
+        // Clips mesurés sur de vrais fichiers : 3,5 Mo (Pixel) à 6 Mo (iPhone). Au-delà
+        // du plafond, ce n'est pas une photo animée mais une vidéo, qu'on ne joue pas.
+        const val MAX_MOTION_BYTES = 20L * 1024 * 1024
+
+        // Place réservée aux clips : de quoi en garder trois, pas de quoi entamer
+        // les 50 Mo du cache de secours (qui, lui, sert au mode hors connexion)
+        const val MOTION_CACHE_BYTES = 20L * 1024 * 1024
 
         const val SAVE_INTERVAL_MS = 30_000L
     }

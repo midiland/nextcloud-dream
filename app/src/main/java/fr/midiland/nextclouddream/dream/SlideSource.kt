@@ -2,6 +2,7 @@ package fr.midiland.nextclouddream.dream
 
 import fr.midiland.nextclouddream.photos.FetchResult
 import fr.midiland.nextclouddream.photos.IndexedPhoto
+import fr.midiland.nextclouddream.photos.MotionRef
 import fr.midiland.nextclouddream.photos.PhotoMetadata
 import fr.midiland.nextclouddream.photos.PhotoSource
 import timber.log.Timber
@@ -9,7 +10,14 @@ import java.io.File
 import kotlin.random.Random
 
 /** Photo prête à l'écran : fichier local et informations à afficher. */
-class Slide(val key: String, val file: File, val metadata: PhotoMetadata?)
+class Slide(
+    val key: String,
+    val file: File,
+    val metadata: PhotoMetadata?,
+    /** Vidéo à jouer par-dessus, si la photo est animée. Le clip lui-même est
+     *  récupéré par l'économiseur, pendant l'affichage de la photo précédente. */
+    val motion: MotionRef? = null,
+)
 
 /**
  * Choisit la prochaine photo à afficher :
@@ -65,7 +73,7 @@ class SlideSource(
             if (photo == null || isOffline) return cachedSlide(key)
 
             when (val result = photos.fetchForDisplay(photo)) {
-                is FetchResult.Ready -> return Slide(key, result.file, photo.metadata)
+                is FetchResult.Ready -> return Slide(key, result.file, photo.metadata, photo.motion)
                 FetchResult.Unavailable -> Unit // photo suivante
                 FetchResult.Offline -> {
                     Timber.w("Serveur injoignable, bascule sur le cache de secours")
@@ -114,7 +122,10 @@ class SlideSource(
         var candidate: String? = key
         repeat(2 * playlist.size) {
             val current = candidate ?: return null
-            cached[current]?.let { file -> return Slide(current, file, indexByKey[current]?.metadata) }
+            cached[current]?.let { file ->
+                val photo = indexByKey[current]
+                return Slide(current, file, photo?.metadata, photo?.motion)
+            }
             candidate = playlist.next()
         }
         return null

@@ -8,6 +8,7 @@ import androidx.annotation.StringRes
 import androidx.core.view.isVisible
 import fr.midiland.nextclouddream.R
 import fr.midiland.nextclouddream.photos.IndexedPhoto
+import fr.midiland.nextclouddream.photos.MotionRef
 import fr.midiland.nextclouddream.photos.PhotoMetadata
 import fr.midiland.nextclouddream.settings.SettingsManager
 import fr.midiland.nextclouddream.photos.PhotoRepository
@@ -21,12 +22,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.io.File
 import kotlin.random.Random
 
 /**
@@ -128,11 +131,14 @@ class NextcloudDreamService : DreamService() {
         while (currentCoroutineContext().isActive) {
             try {
                 coroutineScope {
-                    var prefetched: Deferred<Slide?>? = null
+                    var prefetched: Deferred<Prepared?>? = null
+                    var motionJob: Job? = null
                     while (isActive) {
-                        val slide = prefetched?.await() ?: slides.next()
+                        // Première photo de la session : affichée sans attendre de clip,
+                        // le démarrage du diaporama ne doit rien devoir à l'animation
+                        val prepared = prefetched?.await() ?: slides.next()?.let { Prepared(it, clip = null) }
                         prefetched = null
-                        if (slide == null) {
+                        if (prepared == null) {
                             // Ni le serveur ni le cache de secours ne fournissent de photo
                             Timber.w("Aucune photo affichable, nouvel essai dans %d min", RETRY_DELAY_MS / 60_000)
                             showMessage(R.string.dream_no_photos)
@@ -143,7 +149,10 @@ class NextcloudDreamService : DreamService() {
                         }
 
                         hideMessage()
+                        val slide = prepared.slide
                         val metadata = if (showPhotoInfo) slide.metadata else null
+                        // Un clip ne doit jamais déborder sur la photo suivante
+                        motionJob?.cancelAndJoin()
                         if (!slideshowView.showPhoto(slide.file) { updatePhotoInfo(metadata) }) {
                             // Fichier corrompu ou format non décodable : supprimé du cache
                             // (re-téléchargé au prochain passage) et écarté de ce cycle
@@ -153,8 +162,14 @@ class NextcloudDreamService : DreamService() {
                             continue
                         }
 
-                        // Une photo d'avance : la suivante se télécharge pendant l'affichage de celle-ci
-                        prefetched = async { slides.next() }
+                        // Le clip se joue pendant l'affichage, sans retarder la suite
+                        motionJob = prepared.clip?.let { clip ->
+                            launch { slideshowView.playMotion(clip, startOf(slide.motion)) }
+                        }
+
+                        // Une photo d'avance : la suivante, et son clip, se préparent
+                        // pendant l'affichage de celle-ci
+                        prefetched = async { prepare(slides.next()) }
                         delay(intervalMs)
                     }
                 }
@@ -166,6 +181,20 @@ class NextcloudDreamService : DreamService() {
             }
         }
     }
+
+    /** Photo prête, avec son clip s'il a pu être récupéré à l'avance. */
+    private class Prepared(val slide: Slide, val clip: File?)
+
+    /** Télécharge le clip de la photo animée, le cas échéant. N'échoue jamais. */
+    private suspend fun prepare(slide: Slide?): Prepared? =
+        slide?.let { Prepared(it, repository.fetchMotion(it.key, it.motion)) }
+
+    /**
+     * Position de l'image fixe dans le clip, connue pour un Motion Photo : la lecture
+     * y commence, donc la vidéo démarre sur l'image déjà affichée. Une Live Photo
+     * d'iPhone ne l'indique pas : le fondu de la vue suffit.
+     */
+    private fun startOf(motion: MotionRef?): Long? = (motion as? MotionRef.Trailer)?.startUs
 
     /**
      * Fournit à [slides] les photos à afficher, en attendant si nécessaire.

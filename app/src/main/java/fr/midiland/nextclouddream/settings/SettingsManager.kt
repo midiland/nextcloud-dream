@@ -65,6 +65,15 @@ class SettingsManager(context: Context) {
         get() = prefs.getBoolean(KEY_SHOW_PHOTO_INFO, true)
         set(value) = prefs.edit { putBoolean(KEY_SHOW_PHOTO_INFO, value) }
 
+    /**
+     * Joue la courte vidéo des photos animées (Live Photo iPhone, Motion Photo Pixel).
+     * Chaque clip coûte quelques Mo de plus que la photo : à décocher sur une
+     * connexion limitée, ou sur un appareil dont le stockage est juste.
+     */
+    var playLivePhotos: Boolean
+        get() = prefs.getBoolean(KEY_PLAY_LIVE_PHOTOS, true)
+        set(value) = prefs.edit { putBoolean(KEY_PLAY_LIVE_PHOTOS, value) }
+
     var syncIntervalHours: Int
         get() = prefs.getInt(KEY_SYNC_INTERVAL, DEFAULT_SYNC_INTERVAL_H)
         set(value) = prefs.edit { putInt(KEY_SYNC_INTERVAL, value.coerceIn(MIN_SYNC_INTERVAL_H, MAX_SYNC_INTERVAL_H)) }
@@ -88,6 +97,7 @@ class SettingsManager(context: Context) {
         private const val KEY_SLIDE_INTERVAL = "slide_interval_s"
         private const val KEY_SHOW_CLOCK = "show_clock"
         private const val KEY_SHOW_PHOTO_INFO = "show_photo_info"
+        private const val KEY_PLAY_LIVE_PHOTOS = "play_live_photos"
         private const val KEY_SYNC_INTERVAL = "sync_interval_h"
         private const val KEY_MAX_CACHE = "max_cache_mb"
 

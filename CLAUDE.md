@@ -52,27 +52,30 @@ Les objets partagés passent par **`AppContainer`** (`context.container`) : un s
 | `MainActivity.kt` | Écran de configuration, navigable au D-pad (viewBinding). Sert aussi de `settingsActivity` du dream. **Les flèches haut/bas sont rendues au focus** par `enableDpadNavigation()` : un `EditText` les consomme sinon (déplacement du curseur) et le focus reste bloqué sur un champ. Le premier champ prend le focus au démarrage ; `windowSoftInputMode="stateAlwaysHidden"` empêche le clavier de s'ouvrir tout seul |
 | `dream/NextcloudDreamService.kt` | Cycle de vie, UI (messages, horloge, overlay) et boucle d'affichage avec 1 photo d'avance. Boucle protégée par try/catch (pause de 10 s). Photo illisible → `repository.evict` + `slides.remove` |
 | `dream/SlideSource.kt` | Choix de la photo suivante, indépendant d'Android (`PhotoSource` et horloge injectées). Playlist de **clés**. `FetchResult` : Ready ; Unavailable → photo suivante (10 au plus) ; Offline → `offlineUntil` 5 min, puis cache. Hors ligne, **jusqu'à 2 cycles** sont parcourus pour trouver une photo en cache (1 cycle ne suffit pas : bug trouvé par les tests). Index relu au plus une fois par minute s'il manque des métadonnées |
-| `photos/PhotoSource.kt` | Interface implémentée par `PhotoRepository`, pour tester `SlideSource` avec une fausse source |
+| `photos/PhotoSource.kt` | Interface implémentée par `PhotoRepository`, pour tester `SlideSource` avec une fausse source. `fetchMotion` n'y est **pas** : la fausse source des tests reste inchangée |
+| `photos/MotionRef.kt` | Vidéo d'une photo animée : `Sidecar` (iPhone, fichier à côté), `Trailer` (Pixel, collée au JPEG), `None`. Dans l'index, **null = pas encore examinée**, `None` = examinée sans vidéo |
+| `remote/MotionPhoto.kt` | Analyse du XMP d'un JPEG : items du `Container:Directory` **dans l'ordre** → position et longueur de la vidéo. Gère aussi l'ancien `GCamera:MicroVideoOffset`. Indépendant d'Android, testé sur la JVM |
+| `ui/MotionLayer.kt` | `TextureView` + `MediaPlayer` muet : joue le clip une fois, calé sur le rectangle de la photo. Aucune dépendance ajoutée (ExoPlayer doublerait l'APK) |
 | `dream/PhotoPlaylist.kt` | Générique `PhotoPlaylist<T>`. Mélange par cycles. Les photos vues récemment (au moins 1) passent en fin du cycle suivant |
 | `ui/SlideshowView.kt` | Deux `Slide` (fond flou + photo), fondu de 1,5 s avec `withLayer()`. Règle de cadrage dans `image/Framing` |
 | `ui/BlurredBackground.kt` | Flou maison sur 48 px (`RenderEffect` n'existe qu'à partir de l'API 31) |
 | `photos/PhotoRepository.kt` | `syncNow()` : (1) index sauvé tout de suite, (2) préchargement du cache de secours (borné par `maxCacheMb` / 1 Mo), (3) EXIF, index sauvé toutes les 30 s. `fetchForDisplay()` renvoie un `FetchResult` ; `evict()`. Aperçu serveur, repli sur l'original seulement si `HttpStatusException.isFileSpecific` |
 | `photos/IndexedPhoto.kt`, `PhotoMetadata.kt`, `FetchResult.kt` | Modèles. `PhotoMetadata` : JSON et `formattedDate()` |
-| `remote/NextcloudWebDavClient.kt` | PROPFIND (`oc:fileid`), `downloadPreview`, `readHead` (Range), `download`. Basic Auth en UTF-8. `HttpStatusException(code)` avec `isFileSpecific` et `isPermanent` |
+| `remote/NextcloudWebDavClient.kt` | PROPFIND (`oc:fileid`, `nc:metadata-files-live-photo`), `downloadPreview`, `readHead` (Range), `downloadRange`, `download`. `listPhotos` collecte aussi les `.mov`/`.mp4` et les rattache à leur photo. Basic Auth en UTF-8. `HttpStatusException(code)` avec `isFileSpecific` et `isPermanent` |
 | `remote/MultistatusParser.kt` | Lecture de la réponse PROPFIND (`XmlPullParser` injecté, testé avec kxml2) |
 | `remote/ExifReader.kt` | Date et GPS EXIF (début du JPEG, ou fichier complet) |
 | `remote/PlaceResolver.kt` | `Geocoder` Android, avec cache par zone d'environ 1 km |
-| `storage/PhotoCacheManager.kt` | `directory/<key>.jpg`, avec `key = sha256(url\|etag)[:32]`. Fichiers temporaires **uniques** (`createTempFile`), fsync puis rename. LRU via `touch`/`trim`. `retainOnly` épargne les `.part` de moins d'une heure |
+| `storage/PhotoCacheManager.kt` | `directory/<key><suffixe>`, avec `key = sha256(url\|etag)[:32]`. Le suffixe est un paramètre : `.jpg` pour les photos, `.mp4` pour les clips (deux instances, deux dossiers). Fichiers temporaires **uniques** (`createTempFile`), fsync puis rename. LRU via `touch`/`trim`. `retainOnly` épargne les `.part` de moins d'une heure |
 | `storage/PhotoIndexStore.kt` | `AtomicFile` sur `photo_index.json` |
 | `image/Framing.kt`, `image/ImageResizer.kt` | Règle de cadrage partagée ; réduction sur l'appareil avec contournement Android 9 « invalid scale » |
-| `settings/SettingsManager.kt` | `SharedPreferences` classiques (`nextcloud_dream_prefs`). Seul le mot de passe est chiffré (`app_password_encrypted`), via `KeystoreCipher`, puis gardé déchiffré en mémoire |
+| `settings/SettingsManager.kt` | `SharedPreferences` classiques (`nextcloud_dream_prefs`). `playLivePhotos` (activé par défaut) commande l'animation. Seul le mot de passe est chiffré (`app_password_encrypted`), via `KeystoreCipher`, puis gardé déchiffré en mémoire |
 | `settings/KeystoreCipher.kt` | AES-256-GCM, clé `nextcloud_dream_app_password` dans l'Android Keystore. Format : Base64(IV de 12 octets + texte chiffré). `decrypt` renvoie null si la clé est perdue : seul le mot de passe est alors à ressaisir |
 | `update/ReleaseParser.kt` | Lecture de l'API GitHub `/releases/latest` : tag → `versionCode` (**même formule que `parseAppVersion` dans `build.gradle.kts`**, les deux doivent rester d'accord) et URL de l'APK. Indépendant d'Android, testé sur la JVM. Refuse un tag hors format, une release sans APK, et une URL non HTTPS |
 | `update/ReleaseChecker.kt` | Requête GitHub et téléchargement de l'APK (OkHttp). Bloquant, à appeler depuis `Dispatchers.IO` |
 | `update/ApkInstaller.kt` | Remise de l'APK au `PackageInstaller` du système, autorisation « sources inconnues » (`canRequestPackageInstalls`), seuil d'espace disque. `InstallResultReceiver` ouvre l'écran de confirmation que le système renvoie (`STATUS_PENDING_USER_ACTION`) |
 | `worker/SyncWorker.kt` | WorkManager, contrainte réseau. `failure()` sur une erreur permanente, sinon `retry()` (3 au plus) |
 
-**Tests** (`app/src/test`, `./gradlew testDebugUnitTest`, 30 tests, aussi exécutés en CI) : `PhotoPlaylist`, `SlideSource` (en ligne, indisponible, hors ligne avec horloge simulée, cache sans index, métadonnées), `PhotoCacheManager` (dont une **valeur de référence de `keyFor`**, qui ne doit jamais changer), `PhotoIndexStore`, `PhotoMetadata`, `MultistatusParser`. `testOptions.unitTests.isReturnDefaultValues = true`. org.json et kxml2 sont ajoutés en `testImplementation`.
+**Tests** (`app/src/test`, `./gradlew testDebugUnitTest`, 53 tests, aussi exécutés en CI) : `PhotoPlaylist`, `SlideSource` (en ligne, indisponible, hors ligne avec horloge simulée, cache sans index, métadonnées), `PhotoCacheManager` (dont une **valeur de référence de `keyFor`**, qui ne doit jamais changer), `PhotoIndexStore`, `PhotoMetadata`, `MultistatusParser`, `MotionPhoto`, `ReleaseParser`. `testOptions.unitTests.isReturnDefaultValues = true`. org.json et kxml2 sont ajoutés en `testImplementation`.
 
 **Couverture** : `./gradlew jacocoTestReport` (tâche déclarée dans `app/build.gradle.kts`, dépend de `testDebugUnitTest`). Rapports dans `app/build/reports/jacoco/jacocoTestReport/` : HTML pour la lecture, XML à côté. Mesure à la demande, la CI ne s'en sert pas. `enableUnitTestCoverage = true` sur le build type `debug` ; le code généré (R, BuildConfig, viewBinding) est exclu. État au 2026-10-07 : **22,6 % des lignes** (instructions 22,8 %). Par paquet : `storage` 88 %, `dream` 36 %, `remote` 22 %, `photos` 21 %, et 0 % pour `ui`, `settings`, `worker`, `image` et `NextcloudDreamApp`, qui dépendent d'Android et ne sont pas atteignables depuis la JVM.
 
@@ -97,6 +100,49 @@ Les objets partagés passent par **`AppContainer`** (`context.container`) : un s
 - Autre piste si besoin un jour : `com.google.android.pano.action.SLEEP` (→ `DaydreamVoiceAction`) démarre l'économiseur sélectionné sur-le-champ. C'est la seule action qui fonctionne sur la Mi Box pour le lancer.
 - **Non vérifié sur appareil** : le code compile, mais le comportement réel du bouton sur une TV n'a pas été observé.
 
+### Photos animées (Live Photo iPhone, Motion Photo Pixel)
+
+Quand la photo affichée en possède une, un court clip muet se joue une fois, puis on
+revient à l'image fixe. Réglage `playLivePhotos`, activé par défaut.
+
+**Tout ce qui suit a été relevé sur le vrai serveur de l'utilisateur** (sondes jetables,
+hors dépôt) avant d'écrire une ligne de code :
+
+- **iPhone** : la propriété WebDAV `nc:metadata-files-live-photo` est remplie et donne le
+  **fileid** du fichier jumeau — le `.jpg` pointe le `.mov` et réciproquement. Aucun
+  appairage par nom à deviner ; le repli par nom de base ne sert qu'aux serveurs
+  antérieurs à Nextcloud 29, et se limite aux `.mov` de moins de 20 Mo.
+- **Pixel** : le MP4 est collé à la fin du JPEG et décrit par le `Container:Directory` du
+  XMP. **Offset depuis la fin = somme des `Length`+`Padding` de l'item vidéo et de tous
+  les suivants.** Vérifié au octet près sur un fichier réel de 6 281 220 octets : items
+  `Primary` (0), `GainMap` (37 395), `MotionPhoto` (3 612 543) ; le Range calculé renvoie
+  bien `ftyp`/`isom`.
+- **La détection ne coûte aucune requête** : les `.mov` sont déjà dans la réponse PROPFIND
+  (ils étaient simplement jetés par le filtre d'extension), et le XMP du Pixel est dans
+  les 256 Ko que `readHead` télécharge déjà pour l'EXIF.
+- Le serveur **accepte les Range en fin de fichier**, ce qui permet de récupérer la vidéo
+  sans télécharger la photo.
+
+**Trois pièges, chacun couvert par un test :**
+
+1. `GCamera` ou `Container:Directory` présents **ne signifient pas** photo animée : les
+   photos **Ultra HDR** récentes ont un Container qui ne décrit qu'une carte de gain. Sur
+   les deux fichiers Pixel testés, un seul était animé. Il faut l'item `video/mp4`.
+2. Chercher le premier `Length` près de `video/mp4` renvoie la longueur de la **carte de
+   gain**. Il faut parcourir les items dans l'ordre.
+3. Le JPEG contient un second paquet XMP (le XMP **étendu**), découpé en segments de
+   64 Ko, donc tronqué dans ce qu'on lit : il doit être ignoré sans bruit.
+
+**Lecture.** `MediaPlayer` sur une `TextureView`, volume à zéro, **sans demander le focus
+audio** (ne pas couper la musique de l'utilisateur). Pas de rotation à appliquer soi-même,
+bien que ce soit souvent conseillé : les dimensions annoncées par `MediaPlayer` sont déjà
+celles de l'affichage (un `.mov` codé 1280×720 avec rotation 90° est annoncé 720×1280) et
+l'image arrive déjà redressée — tourner une seconde fois donnait une vidéo couchée et
+étirée en plein écran (constaté à l'écran, corrigé). Pour un Motion Photo, la lecture
+commence à `MotionPhotoPresentationTimestampUs`, c'est-à-dire **sur l'image fixe
+elle-même** : le passage photo → vidéo est invisible. Retour à la photo par un fondu de
+300 ms.
+
 ### Invariants à respecter
 
 - **Écriture atomique.** Le cache et l'index n'exposent jamais de fichier incomplet. Les fichiers temporaires `*.part` sont renommés à la fin. `listPhotos()` ne liste que les `*.jpg`.
@@ -105,6 +151,17 @@ Les objets partagés passent par **`AppContainer`** (`context.container`) : un s
 - **Stockage.** Aucun téléchargement si `StorageManager.getAllocatableBytes` est sous 30 Mo. Android garde une réserve d'environ 5 % : sur la Mi Box, il faut environ 290 Mo libres dans `df` pour pouvoir écrire.
 - **Mémoire.** Au plus deux bitmaps vivent en même temps dans `SlideshowView`, plus une image préchargée sur disque (pas en mémoire). Ne pas activer le cache mémoire de Coil.
 - **Coroutines.** Ne pas avaler `CancellationException` (voir `syncNow` et `fetchForDisplay`).
+- **Les clips sont un bonus, jamais une dépendance.** `fetchMotion` ne lève jamais et rend
+  null dès que quelque chose manque (réglage décoché, stockage saturé, serveur injoignable,
+  format inattendu) : la photo s'affiche alors sans animation, et rien d'autre ne change.
+  Vérifié : réglage décoché → 0 clip, 0 téléchargement ; serveur coupé → le diaporama
+  continue sur le cache avec un simple avertissement.
+- **Les clips ne vont pas dans le cache de secours.** Dossier `files/motion` à part, 20 Mo,
+  son propre LRU : à 3,5 Mo (Pixel) ou 6 Mo (iPhone) pièce, ils videraient de ses photos le
+  cache de 50 Mo qui fait tenir le diaporama hors connexion. Un clip de plus de 20 Mo est
+  refusé — ce n'est pas une photo animée mais une vidéo.
+- **Un clip ne déborde jamais sur la photo suivante** : son job est annulé avant chaque
+  nouvelle photo.
 
 ### Mesures (18 photos de test)
 
@@ -192,4 +249,14 @@ Les deux sont **obligatoires** sur Android TV et déclarées dans le manifeste (
 - Repli hors connexion testé sur l'émulateur (`svc wifi disable`) : le diaporama bascule bien sur le cache.
 - Sur la box, 4 originaux non réduits restent dans le cache (avant le correctif « invalid scale »). Ils seront évincés par le LRU.
 - HEIC, fluidité et mémoire n'ont pas été vérifiés sur la Mi Box réelle.
+- **Photos animées, ce qui reste à vérifier.** Le parcours complet a été observé sur
+  l'émulateur Android TV (API 31) avec des fichiers fabriqués pour l'occasion : Motion
+  Photo avec carte de gain, leurre Ultra HDR, paire `.jpg`+`.mov` avec rotation, détection
+  et cadrage corrects, réglage décoché, serveur coupé. **Jamais essayé sur de vrais
+  fichiers d'appareil** : le `.mov` de test est un MP4/H.264 renommé, là où un iPhone
+  produit du QuickTime/HEVC — à confirmer sur la box, de même que la fluidité du décodage.
+  La Mi Box n'aura de toute façon probablement pas la place (~260 Mo libres) : la
+  fonctionnalité s'y effacera d'elle-même, c'est voulu.
+- Dans le dossier de test de l'utilisateur, **2 fichiers sur 22** sont animés : l'effet
+  restera discret sur un dossier mêlant d'anciennes photos et des prises d'appareil photo.
 - Logs en release : `ReleaseTree` (INFO et au-dessus, tag `NextcloudDream`) → `adb logcat -s NextcloudDream:V`.

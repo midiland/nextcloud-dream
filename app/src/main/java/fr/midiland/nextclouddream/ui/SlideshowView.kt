@@ -46,9 +46,16 @@ class SlideshowView @JvmOverloads constructor(
     private var front = Slide(context)
     private var back = Slide(context)
 
+    /** Au-dessus des deux diapositives : la vidéo des photos animées. */
+    private val motion = MotionLayer(context)
+
+    /** Cadrage de la photo affichée : la vidéo doit suivre exactement la même règle. */
+    private var showingWholeImage = false
+
     init {
         addView(back)
         addView(front)
+        addView(motion)
     }
 
     /**
@@ -101,6 +108,9 @@ class SlideshowView @JvmOverloads constructor(
         incoming.background.isVisible = blurredBackground != null
         incoming.alpha = 0f
         incoming.bringToFront()
+        // La diapositive entrante vient de passer devant : la vidéo doit rester au-dessus
+        motion.bringToFront()
+        showingWholeImage = showWhole
 
         onFadeStart()
         crossfade(incoming, outgoing)
@@ -113,10 +123,22 @@ class SlideshowView @JvmOverloads constructor(
         return true
     }
 
+    /**
+     * Joue le clip de la photo affichée, une fois et sans son, puis revient à la photo.
+     * Suspend jusqu'à la fin. L'annulation (photo suivante) rend la main tout de suite.
+     *
+     * @param startUs position de l'image fixe dans le clip, pour un départ sans saut.
+     */
+    suspend fun playMotion(file: File, startUs: Long?): Boolean =
+        motion.playOnce(file, showingWholeImage, startUs)
+
     /** Libère les images (appelé quand l'économiseur se ferme). */
     fun clear() {
         front.animate().cancel()
         back.animate().cancel()
+        motion.animate().cancel()
+        motion.alpha = 0f
+        motion.release()
         front.clear()
         back.clear()
     }

@@ -11,6 +11,11 @@ class DavEntry(
     val etag: String,
     val size: Long,
     val fileId: Long?,
+    /**
+     * Identifiant du fichier jumeau d'une Live Photo : la photo désigne la vidéo et
+     * réciproquement. Renseigné par Nextcloud, null pour une photo ordinaire.
+     */
+    val livePhotoFileId: Long? = null,
 )
 
 /**
@@ -21,6 +26,7 @@ object MultistatusParser {
 
     private const val DAV_NS = "DAV:"
     private const val OC_NS = "http://owncloud.org/ns"
+    private const val NC_NS = "http://nextcloud.org/ns"
 
     /**
      * Analyse une réponse <d:multistatus> (une <d:response> par fichier/dossier).
@@ -33,24 +39,32 @@ object MultistatusParser {
         var etag = ""
         var size = 0L
         var fileId: Long? = null
+        var livePhotoFileId: Long? = null
 
         while (parser.next() != XmlPullParser.END_DOCUMENT) {
-            if (parser.namespace != DAV_NS && parser.namespace != OC_NS) continue
+            if (parser.namespace != DAV_NS && parser.namespace != OC_NS && parser.namespace != NC_NS) continue
             when (parser.eventType) {
                 XmlPullParser.START_TAG -> when (parser.name) {
-                    "response" -> { href = null; isCollection = false; etag = ""; size = 0L; fileId = null }
+                    "response" -> {
+                        href = null; isCollection = false; etag = ""; size = 0L
+                        fileId = null; livePhotoFileId = null
+                    }
                     "href" -> href = parser.nextText().trim()
                     "collection" -> isCollection = true
                     "getetag" -> etag = parser.nextText().trim().trim('"')
                     "getcontentlength" -> size = parser.nextText().trim().toLongOrNull() ?: 0L
                     "fileid" -> fileId = parser.nextText().trim().toLongOrNull()
+                    // La propriété est renvoyée une seconde fois, vide, dans le bloc
+                    // des propriétés absentes (404) : ne jamais écraser une valeur lue
+                    "metadata-files-live-photo" ->
+                        parser.nextText().trim().toLongOrNull()?.let { livePhotoFileId = it }
                 }
                 XmlPullParser.END_TAG -> if (parser.name == "response" && parser.namespace == DAV_NS) {
                     // href est un chemin absolu encodé (ex. /remote.php/dav/files/bob/Photos/a%20b.jpg)
                     val url = href?.let { requestUrl.resolve(it) }
                     if (url != null) {
                         val name = url.pathSegments.lastOrNull { it.isNotEmpty() }.orEmpty()
-                        entries += DavEntry(url, name, isCollection, etag, size, fileId)
+                        entries += DavEntry(url, name, isCollection, etag, size, fileId, livePhotoFileId)
                     }
                 }
             }

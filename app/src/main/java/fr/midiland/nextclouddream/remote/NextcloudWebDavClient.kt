@@ -23,7 +23,12 @@ data class RemotePhoto(
     val size: Long,
     /** Identifiant Nextcloud du fichier, nécessaire pour demander un aperçu. */
     val fileId: Long?,
+    /** Vidéo de Live Photo (iPhone) : un fichier distinct, désigné par le serveur. */
+    val sidecar: SidecarVideo? = null,
 )
+
+/** Vidéo d'une Live Photo, stockée à côté de la photo. */
+data class SidecarVideo(val url: HttpUrl, val size: Long)
 
 /**
  * Réponse HTTP en erreur. Le code permet de distinguer une photo indisponible
@@ -66,7 +71,8 @@ class NextcloudWebDavClient(
      * @throws IOException si le serveur est injoignable ou répond une erreur.
      */
     fun listPhotos(folderPath: String): List<RemotePhoto> {
-        val photos = mutableListOf<RemotePhoto>()
+        val images = mutableListOf<DavEntry>()
+        val videos = mutableListOf<DavEntry>()
         val pending = ArrayDeque<HttpUrl>().apply { add(folderUrl(folderPath)) }
         val visited = mutableSetOf<String>()
 
@@ -79,12 +85,47 @@ class NextcloudWebDavClient(
                     // PROPFIND Depth:1 renvoie aussi le dossier lui-même : on l'ignore
                     entry.url.encodedPath.trimEnd('/') == dirUrl.encodedPath.trimEnd('/') -> Unit
                     entry.isCollection -> pending.add(entry.url)
-                    isImage(entry.name) -> photos += RemotePhoto(entry.url, entry.name, entry.etag, entry.size, entry.fileId)
+                    isImage(entry.name) -> images += entry
+                    // Jamais affichées comme des photos : seulement rattachées à l'une d'elles
+                    isVideo(entry.name) -> videos += entry
                 }
             }
         }
-        Timber.i("WebDAV : %d image(s) trouvée(s) dans %s", photos.size, folderPath)
+        val photos = pairLivePhotos(images, videos)
+        Timber.i(
+            "WebDAV : %d image(s) trouvée(s) dans %s, dont %d animée(s)",
+            photos.size, folderPath, photos.count { it.sidecar != null },
+        )
         return photos
+    }
+
+    /**
+     * Rattache à chaque photo la vidéo de sa Live Photo. Nextcloud donne le fileid du
+     * fichier jumeau (depuis la version 29) ; sinon on retombe sur la convention de
+     * l'application iOS, qui envoie les deux fichiers sous le même nom de base.
+     *
+     * Le repli est volontairement restreint aux `.mov` et aux fichiers de taille
+     * plausible : un `.mp4` qui porterait le même nom qu'une photo serait sans doute
+     * une vidéo sans rapport, qu'il ne faut ni télécharger ni jouer.
+     */
+    private fun pairLivePhotos(images: List<DavEntry>, videos: List<DavEntry>): List<RemotePhoto> {
+        val byFileId = videos.mapNotNull { video -> video.fileId?.let { it to video } }.toMap()
+        val byStem = videos
+            .filter { extensionOf(it.name) == "mov" && it.size <= MAX_SIDECAR_BYTES }
+            .associateBy { it.name.substringBeforeLast('.').lowercase() }
+
+        return images.map { image ->
+            val video = byFileId[image.livePhotoFileId]
+                ?: byStem[image.name.substringBeforeLast('.').lowercase()]
+            RemotePhoto(
+                url = image.url,
+                name = image.name,
+                etag = image.etag,
+                size = image.size,
+                fileId = image.fileId,
+                sidecar = video?.let { SidecarVideo(it.url, it.size) },
+            )
+        }
     }
 
     /** Télécharge le fichier complet [url] dans [destination] (écrasé s'il existe). */
@@ -130,6 +171,25 @@ class NextcloudWebDavClient(
                 total += read
             }
             buffer.copyOf(total)
+        }
+    }
+
+    /**
+     * Télécharge les octets [from]..[to] (inclus) de [url] dans [destination].
+     * Sert à extraire la vidéo collée à la fin d'un Motion Photo sans télécharger
+     * la photo. Un serveur qui ignorerait l'en-tête Range répondrait 200 et le
+     * fichier complet : c'est traité comme une erreur, pas écrit tel quel.
+     */
+    fun downloadRange(url: HttpUrl, from: Long, to: Long, destination: File) {
+        val request = request(url).newBuilder()
+            .header("Range", "bytes=$from-$to")
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            if (response.code != 206) {
+                throw HttpStatusException(response.code, "GET Range ${url.encodedPath} : HTTP ${response.code}")
+            }
+            val body = response.body ?: throw IOException("GET Range ${url.encodedPath} : réponse vide")
+            destination.outputStream().use { out -> body.byteStream().copyTo(out) }
         }
     }
 
@@ -182,8 +242,15 @@ class NextcloudWebDavClient(
 
         val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "heic", "heif", "webp")
 
-        fun isImage(fileName: String): Boolean =
-            fileName.substringAfterLast('.', "").lowercase() in IMAGE_EXTENSIONS
+        /** Vidéos des Live Photos : jamais affichées seules, seulement jouées sur une photo. */
+        val VIDEO_EXTENSIONS = setOf("mov", "mp4")
+
+        // Un clip de Live Photo pèse quelques Mo ; au-delà, c'est une vidéo sans rapport
+        private const val MAX_SIDECAR_BYTES = 20L * 1024 * 1024
+
+        fun isImage(fileName: String): Boolean = extensionOf(fileName) in IMAGE_EXTENSIONS
+
+        fun isVideo(fileName: String): Boolean = extensionOf(fileName) in VIDEO_EXTENSIONS
 
         fun isJpeg(fileName: String): Boolean = extensionOf(fileName) in setOf("jpg", "jpeg")
 
@@ -192,14 +259,17 @@ class NextcloudWebDavClient(
 
         private fun extensionOf(fileName: String) = fileName.substringAfterLast('.', "").lowercase()
 
+        // metadata-files-live-photo : Nextcloud 29 et plus. Une propriété inconnue du
+        // serveur est simplement renvoyée vide, le listing fonctionne sans elle.
         private val PROPFIND_BODY = """
             <?xml version="1.0" encoding="UTF-8"?>
-            <d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+            <d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
               <d:prop>
                 <d:resourcetype/>
                 <d:getetag/>
                 <d:getcontentlength/>
                 <oc:fileid/>
+                <nc:metadata-files-live-photo/>
               </d:prop>
             </d:propfind>
         """.trimIndent()
