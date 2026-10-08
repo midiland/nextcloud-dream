@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Champ de saisie : au focus, c'est le fond qui change, pas un trait de 2 px.
+     Le soulignement par défaut était plus contrasté que l'état focalisé (9,5:1 contre 4,5:1),
+     donc l'indicateur de focus était moins visible que ce qu'il devait distinguer. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#17303F" />
+            <stroke android:width="2dp" android:color="#2BA6E8" />
+            <corners android:radius="4dp" />
+        </shape>
+    </item>
+    <item>
+        <!-- Marges négatives : seule l'arête basse reste visible, comme un soulignement -->
+        <layer-list>
+            <item android:left="-2dp" android:right="-2dp" android:top="-2dp">
+                <shape android:shape="rectangle">
+                    <stroke android:width="1dp" android:color="#70FFFFFF" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+</selector>

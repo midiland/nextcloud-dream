@@ -53,5 +53,12 @@
     <string name="update_installed">Mise à jour installée.</string>
     <string name="update_signature_mismatch">Installation refusée : cette mise à jour n\'est pas signée avec la même clé que la version installée.</string>
     <string name="update_refused">Installation refusée par le système (code %1$d).</string>
-    <string name="config_screensaver_settings">Réglages de l\'économiseur d\'écran</string>
+    <string name="config_screensaver_settings">Ouvrir les réglages Android</string>
+    <string name="config_show_password">Afficher le mot de passe</string>
+    <string name="config_screensaver_hint">Puis, dans les réglages : Préférences de l\'appareil → Économiseur d\'écran → Nextcloud Dream.</string>
+    <string name="config_discard_title">Quitter sans enregistrer ?</string>
+    <string name="config_discard_message">Les modifications seront perdues.</string>
+    <string name="config_discard_save">Enregistrer</string>
+    <string name="config_discard_quit">Quitter</string>
+    <string name="config_discard_cancel">Annuler</string>
 </resources>

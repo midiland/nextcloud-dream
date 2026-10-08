@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bouton : focalisé en bleu Nextcloud, inerte en gris sombre. Le thème AppCompat
+     ne séparait les deux états que par 1,36:1 de contraste, indécelable à trois mètres. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#0082C9" />
+            <stroke android:width="2dp" android:color="#FFFFFF" />
+            <corners android:radius="4dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#242B33" />
+            <stroke android:width="1dp" android:color="#50FFFFFF" />
+            <corners android:radius="4dp" />
+        </shape>
+    </item>
+</selector>

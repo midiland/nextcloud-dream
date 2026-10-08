@@ -54,5 +54,12 @@
     <string name="update_installed">Update installed.</string>
     <string name="update_signature_mismatch">Install refused: this update is not signed with the same key as the installed version.</string>
     <string name="update_refused">Install refused by the system (code %1$d).</string>
-    <string name="config_screensaver_settings">Screen saver settings</string>
+    <string name="config_screensaver_settings">Open the Android settings</string>
+    <string name="config_show_password">Show the password</string>
+    <string name="config_screensaver_hint">Then, in the settings: Device Preferences → Screen saver → Nextcloud Dream.</string>
+    <string name="config_discard_title">Leave without saving?</string>
+    <string name="config_discard_message">Your changes will be lost.</string>
+    <string name="config_discard_save">Save</string>
+    <string name="config_discard_quit">Leave</string>
+    <string name="config_discard_cancel">Cancel</string>
 </resources>

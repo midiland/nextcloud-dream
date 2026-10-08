@@ -13,12 +13,13 @@
         <item name="android:textSize">28sp</item>
     </style>
 
+    <!-- 18sp : on lit cet écran à trois mètres, pas à cinquante centimètres -->
     <style name="ConfigLabel">
-        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">12dp</item>
         <item name="android:textColor">#B0FFFFFF</item>
-        <item name="android:textSize">14sp</item>
+        <item name="android:textSize">18sp</item>
     </style>
 
     <style name="ConfigField">
@@ -28,5 +29,41 @@
         <item name="android:textColorHint">#60FFFFFF</item>
         <item name="android:importantForAutofill">no</item>
         <item name="android:singleLine">true</item>
+        <!-- Un fond personnalisé remet les marges intérieures à zéro : il faut les reposer -->
+        <item name="android:background">@drawable/tv_field</item>
+        <item name="android:paddingHorizontal">12dp</item>
+        <item name="android:paddingVertical">10dp</item>
+    </style>
+
+    <style name="ConfigButton">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">12dp</item>
+        <item name="android:background">@drawable/tv_button</item>
+        <item name="android:stateListAnimator">@animator/tv_focus_scale</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:paddingVertical">14dp</item>
+    </style>
+
+    <!-- Case à cocher pleine largeur : au focus, c'est toute la ligne qui s'allume,
+         libellé compris, et non un halo pâle autour de la seule case -->
+    <style name="ConfigCheckBox">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:background">@drawable/tv_field</item>
+        <item name="android:paddingHorizontal">12dp</item>
+        <item name="android:paddingVertical">12dp</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">18sp</item>
+    </style>
+
+    <style name="ConfigStatus">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">16dp</item>
+        <item name="android:textColor">#E0FFFFFF</item>
+        <item name="android:textSize">18sp</item>
     </style>
 </resources>

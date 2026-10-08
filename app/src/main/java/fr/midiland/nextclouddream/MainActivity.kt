@@ -7,11 +7,15 @@ import android.content.IntentFilter
 import android.content.pm.PackageInstaller
 import android.os.Bundle
 import android.provider.Settings
+import android.text.method.PasswordTransformationMethod
 import android.view.KeyEvent
 import android.view.View
 import android.widget.EditText
+import androidx.activity.addCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import fr.midiland.nextclouddream.settings.SettingsManager
 import fr.midiland.nextclouddream.databinding.ActivityMainBinding
@@ -39,6 +43,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var settings: SettingsManager
 
+    /** Référence pour savoir si quelque chose a changé depuis l'ouverture ou le dernier enregistrement. */
+    private var saisieInitiale: List<String> = emptyList()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -47,9 +54,12 @@ class MainActivity : AppCompatActivity() {
 
         loadSettings()
         enableDpadNavigation()
+        binding.showPassword.setOnCheckedChangeListener { _, coche -> revealPassword(coche) }
         binding.saveButton.setOnClickListener { saveAndSync() }
         binding.testButton.setOnClickListener { testConnection() }
         offerScreensaverSettings()
+        confirmBeforeLeaving()
+        saisieInitiale = fieldValues()
 
         // Inscrit pour toute la vie de l'activité, pas seulement quand elle est visible :
         // le verdict de l'installation arrive pendant que l'écran système est au premier plan.
@@ -79,6 +89,7 @@ class MainActivity : AppCompatActivity() {
             .firstOrNull { it.resolveActivity(packageManager) != null }
             ?: return
 
+        binding.screensaverHint.visibility = View.VISIBLE
         binding.screensaverSettingsButton.visibility = View.VISIBLE
         binding.screensaverSettingsButton.setOnClickListener {
             // L'écran peut avoir disparu entre la résolution et le clic (mise à jour du système)
@@ -181,36 +192,83 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Navigation à la télécommande entre les champs de saisie.
+     * Navigation à la télécommande : chaîne de focus explicite, dans l'ordre de l'écran.
      *
-     * Un EditText consomme les flèches haut et bas (elles déplacent le curseur dans
-     * le texte) : sans cela, le focus reste bloqué sur le premier champ et l'écran
-     * est inutilisable sans clavier. Les champs tiennent sur une ligne, donc on rend
-     * ces touches au déplacement du focus. Le premier champ prend le focus au
-     * démarrage, sinon le premier appui sur la télécommande est perdu.
+     * Deux raisons de ne pas laisser faire le système. D'abord un EditText consomme les
+     * flèches haut et bas (elles déplacent le curseur) : sans interception, le focus
+     * reste bloqué sur le premier champ. Ensuite `focusSearch` s'appuie sur une
+     * heuristique géométrique qui, mesurée sur l'appareil, sautait la case « Afficher le
+     * mot de passe » pourtant placée juste en dessous du champ. Une liste ordonnée
+     * donne exactement le parcours voulu, dans les deux sens, et ignore d'elle-même
+     * les boutons masqués.
      */
     private fun enableDpadNavigation() = with(binding) {
-        listOf(serverUrl, username, appPassword, folderPath, slideInterval, syncInterval, maxCache)
-            .forEach { it.moveFocusOnVerticalDpad() }
+        val parcours = listOf<View>(
+            serverUrl, username, appPassword, showPassword, folderPath,
+            slideInterval, syncInterval, maxCache, showClock, showPhotoInfo,
+            saveButton, testButton, screensaverSettingsButton, updateButton,
+        )
+        parcours.forEach { vue -> vue.moveFocusAlong(parcours) }
         serverUrl.requestFocus()
     }
 
-    private fun EditText.moveFocusOnVerticalDpad() = setOnKeyListener { view, keyCode, event ->
-        val direction = when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_UP -> View.FOCUS_UP
-            KeyEvent.KEYCODE_DPAD_DOWN -> View.FOCUS_DOWN
+    private fun View.moveFocusAlong(parcours: List<View>) = setOnKeyListener { vue, keyCode, event ->
+        val pas = when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP -> -1
+            KeyEvent.KEYCODE_DPAD_DOWN -> 1
             else -> return@setOnKeyListener false
         }
         // On ne réagit qu'à l'appui, mais les deux événements sont consommés
-        // pour éviter que le relâchement ne retombe sur le champ d'origine.
+        // pour éviter que le relâchement ne retombe sur la vue d'origine.
         if (event.action == KeyEvent.ACTION_DOWN) {
-            view.focusSearch(direction)?.requestFocus(direction)
+            val depart = parcours.indexOf(vue)
+            generateSequence(depart + pas) { it + pas }
+                .takeWhile { it in parcours.indices }
+                .map(parcours::get)
+                .firstOrNull { it.isVisible && it.isFocusable }
+                ?.requestFocus()
         }
         true
     }
 
+    /** Le champ est masqué : sans ça, une faute de frappe impose de ressaisir 29 caractères. */
+    private fun revealPassword(reveal: Boolean) = with(binding.appPassword) {
+        val position = selectionStart
+        transformationMethod = if (reveal) null else PasswordTransformationMethod.getInstance()
+        setSelection(position.coerceIn(0, text.length))
+    }
+
+    /** Valeurs saisies, pour détecter une modification non enregistrée. */
+    private fun fieldValues(): List<String> = with(binding) {
+        listOf(serverUrl, username, appPassword, folderPath, slideInterval, syncInterval, maxCache)
+            .map { it.text.toString() } +
+            listOf(showClock.isChecked.toString(), showPhotoInfo.isChecked.toString())
+    }
+
+    /**
+     * Sur TV, RETOUR est la touche qui ferme le clavier à l'écran : un appui de trop
+     * après une longue saisie fermait l'écran sans rien enregistrer ni prévenir.
+     */
+    private fun confirmBeforeLeaving() {
+        onBackPressedDispatcher.addCallback(this) {
+            if (fieldValues() == saisieInitiale) {
+                finish()
+                return@addCallback
+            }
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle(R.string.config_discard_title)
+                .setMessage(R.string.config_discard_message)
+                .setPositiveButton(R.string.config_discard_save) { _, _ -> saveAndSync() }
+                .setNegativeButton(R.string.config_discard_quit) { _, _ -> finish() }
+                .setNeutralButton(R.string.config_discard_cancel, null)
+                .show()
+        }
+    }
+
     private fun loadSettings() = with(binding) {
-        serverUrl.setText(settings.serverUrl)
+        // Le gabarit ne se saisit pas : on pose le préfixe pour épargner un aller-retour
+        // vers le panneau des symboles du clavier à l'écran.
+        serverUrl.setText(settings.serverUrl.ifBlank { "https://" })
         username.setText(settings.username)
         appPassword.setText(settings.appPassword)
         folderPath.setText(settings.folderPath)
@@ -235,6 +293,7 @@ class MainActivity : AppCompatActivity() {
         }
         // Réaffiche les valeurs normalisées (bornes, slash final retiré…)
         loadSettings()
+        saisieInitiale = fieldValues()
 
         if (!settings.isConfigured) {
             binding.status.setText(R.string.config_incomplete)
