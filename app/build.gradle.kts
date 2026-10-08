@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    jacoco
 }
 
 // Version de l'app, issue du tag git en CI : ./gradlew assembleRelease -PappVersion=V1.02.03
@@ -50,6 +51,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Instrumente les classes pour la couverture des tests unitaires JVM
+            enableUnitTestCoverage = true
+        }
         release {
             // R8 : supprime le code inutilisé des bibliothèques (APK ~10x plus léger),
             // important sur la Mi Box dont le stockage est très limité
@@ -82,6 +87,35 @@ kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
     }
+}
+
+// Couverture des tests unitaires : ./gradlew jacocoTestReport
+// Rapport lisible dans app/build/reports/jacoco/jacocoTestReport/html/index.html,
+// XML dans .../jacocoTestReport.xml (lu par la CI pour le badge).
+tasks.register<JacocoReport>("jacocoTestReport") {
+    group = "verification"
+    description = "Couverture des tests unitaires JVM (testDebugUnitTest)"
+    dependsOn("testDebugUnitTest")
+
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+        // CSV : c'est ce format que lit le générateur de badge en CI
+        csv.required.set(true)
+    }
+
+    // Code généré : ni écrit ni testé par nous, il fausserait la mesure
+    val generated = listOf(
+        "**/R.class", "**/R$*.class", "**/BuildConfig.*", "**/Manifest*.*",
+        "**/databinding/**", "**/*Binding.class",
+    )
+    classDirectories.setFrom(
+        fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debug")) { exclude(generated) }
+    )
+    sourceDirectories.setFrom(files("src/main/java"))
+    executionData.setFrom(
+        layout.buildDirectory.file("outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec")
+    )
 }
 
 dependencies {
