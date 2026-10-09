@@ -74,6 +74,16 @@ class MotionLayer(context: Context) : TextureView(context) {
                 file.name, player.videoWidth, player.videoHeight, (startUs ?: 0) / 1000,
             )
             frameVideo(player.videoWidth, player.videoHeight, showWhole)
+            // La texture garde la dernière image du clip précédent : on ne fait
+            // apparaître la vue qu'une fois la première image de celui-ci posée dessus,
+            // sinon l'ancien clip « flashe » au début du nouveau. Écouteur posé avant le
+            // seekTo, qui peut déjà rendre une image.
+            player.setOnInfoListener { _, what, _ ->
+                if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
+                    animate().alpha(1f).setDuration(FADE_MS).withLayer().start()
+                }
+                false
+            }
             if (startUs != null) {
                 // SEEK_CLOSEST : on veut l'image exacte, pas l'image-clé la plus proche
                 player.seekTo(startUs / 1000L, MediaPlayer.SEEK_CLOSEST)
@@ -155,7 +165,10 @@ class MotionLayer(context: Context) : TextureView(context) {
         )
     }
 
-    /** Démarre la lecture, fait apparaître la vidéo, et rend la main à la fin du clip. */
+    /**
+     * Démarre la lecture et rend la main à la fin du clip. La vidéo apparaît à sa
+     * première image (voir l'écouteur posé dans [playOnce]).
+     */
     private suspend fun awaitPlayback(player: MediaPlayer) = suspendCancellableCoroutine { cont ->
         player.setOnCompletionListener { if (cont.isActive) cont.resume(Unit) }
         // Un codec absent ne doit pas figer le diaporama : on abandonne ce clip
@@ -165,7 +178,6 @@ class MotionLayer(context: Context) : TextureView(context) {
             true
         }
         player.start()
-        animate().alpha(1f).setDuration(FADE_MS).withLayer().start()
         cont.invokeOnCancellation { runCatching { player.stop() } }
     }
 
