@@ -41,7 +41,8 @@ import javax.net.ssl.SSLException
  */
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var binding: ActivityMainBinding
+    private var _binding: ActivityMainBinding? = null
+    private val binding get() = _binding!!
     private lateinit var settings: SettingsManager
 
     /** Référence pour savoir si quelque chose a changé depuis l'ouverture ou le dernier enregistrement. */
@@ -190,6 +191,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(installResult)
+        _binding = null
     }
 
     /**
