@@ -8,6 +8,8 @@
 
 Le `java` du PATH est un JDK 25, que Gradle 8.14 / AGP 8.13 refusent : **toujours forcer
 le JDK 17**. Le SDK Android est dans `~/Android/Sdk` (et non à l'emplacement macOS).
+Sur le Mac : SDK dans `~/Library/Android/sdk`, JDK 21 d'Android Studio
+(`/Applications/Android Studio.app/Contents/jbr/Contents/Home`), AVD `Android_TV_1080p_API31`.
 
 ```bash
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
@@ -19,6 +21,11 @@ export ANDROID_SDK_ROOT=$HOME/Android/Sdk
 
 - Debug et release ont la même signature (clé debug). On passe de l'un à l'autre avec `adb install -r`, et les données sont conservées.
 - `adb` se trouve dans `~/Android/Sdk/platform-tools/adb`. Les shells non interactifs ne l'ont pas dans leur PATH : utiliser le chemin complet.
+
+**Test de bout en bout sur émulateur** (faux Nextcloud, configuration saisie
+automatiquement, économiseur lancé) : `tools/fake-nextcloud/run_emulator_test.sh`. Mode
+d'emploi, résultats attendus et erreurs à éviter : **`docs/TESTING_GUIDE.md`**, à lire
+avant tout test sur émulateur.
 
 Pour lancer l'économiseur sur un appareil :
 
@@ -207,8 +214,9 @@ lecture en entier avec un plafond réglable (60 s), date et lieu comme pour les 
   fichier mis en cache sous la clé d'une vidéo par une version antérieure.
 
 **Vérifié le 2026-10-12** sur l'émulateur Android TV API 31 (Mac), contre un **faux
-serveur Nextcloud** local (script Python jetable, hors dépôt : PROPFIND, GET/HEAD avec
-Range, aperçus, Basic auth, journal de chaque requête), joint par `adb reverse tcp:8080` :
+serveur Nextcloud** local (PROPFIND, GET/HEAD avec Range, aperçus, Basic auth, journal de
+chaque requête), joint par `adb reverse tcp:8080`. Ce serveur est maintenant versionné dans
+`tools/fake-nextcloud/` (voir « Test de bout en bout sur émulateur ») :
 
 - Synchro : 4 photos (dont 1 Live Photo correctement rattachée) et 7 vidéos seules ;
   date et lieu lus pour le `.mp4` à clés iPhone (Paris) et le `.mov` à `©xyz` (Kyoto),

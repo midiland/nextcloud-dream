@@ -1,471 +1,242 @@
-# 🧪 Guide de Test pour NextCloudDreamAndroidTv
+# Guide de test sur émulateur — Nextcloud Dream
 
-*Dernière mise à jour : 17 octobre 2026*
+*Mis à jour le 17 octobre 2026. Écrit pour les agents de code comme pour les humains.*
 
-Ce guide décrit comment configurer un environnement de test complet pour l'application **NextCloudDreamAndroidTv**, y compris la lecture des vidéos seules, des Live Photos et des Motion Photos.
+Ce guide explique comment voir l'économiseur tourner **pour de vrai** sur un émulateur
+Android TV, branché sur un faux serveur Nextcloud, et comment vérifier ce qu'il fait.
+Les tests unitaires (`./gradlew testDebugUnitTest`) ne suffisent pas pour la lecture
+vidéo, les fondus ou le cadrage : il faut regarder l'écran et les journaux.
 
----
-
-## 📋 Table des Matières
-
-1. [Prérequis](#-prérequis)
-2. [Configuration de l'environnement](#-configuration-de-lenvironnement)
-3. [Build de l'application](#-build-de-lapplication)
-4. [Gestion des émulateurs Android TV](#-gestion-des-émulateurs-android-tv)
-5. [Installation de l'application](#-installation-de-lapplication)
-6. [Configuration de l'application](#-configuration-de-lapplication)
-7. [Test des fonctionnalités](#-test-des-fonctionnalités)
-8. [Vérification via les logs](#-vérification-via-les-logs)
-9. [Test sans serveur Nextcloud](#-test-sans-serveur-nextcloud)
-10. [Dépannage](#-dépannage)
+> **Agent : lis d'abord la section [Règles pour les agents](#règles-pour-les-agents).**
+> Elle liste les erreurs déjà commises sur ce projet.
 
 ---
 
-## 📌 Prérequis
+## 1. Démarrage rapide (une seule commande)
 
-### Matériel
-- Un Mac avec architecture Intel ou Apple Silicon
-- Android Studio installé
-- SDK Android configuré (dans `~/Library/Android/sdk`)
-- Au moins 8 Go de RAM (16 Go recommandé pour l'émulateur)
+Depuis la racine du dépôt :
 
-### Logiciels
-- Java JDK 17 ou 21 (fournis avec Android Studio)
-- Gradle 8.14+
-- ADB et outils Android
-- Git
+```bash
+tools/fake-nextcloud/run_emulator_test.sh
+```
+
+Durée : 1 à 3 minutes. À la fin, le script affiche `OK : l'économiseur tourne sur emulator-5554`
+et les commandes utiles (journaux, capture d'écran…). En cas de problème, il s'arrête
+sur une ligne `ÉCHEC : …` qui dit quelle étape a échoué.
+
+Le script est **idempotent** : on peut le relancer autant de fois qu'on veut. Il remet
+les données de l'application à zéro à chaque fois (`pm clear`).
+
+Variables facultatives :
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `AVD` | premier AVD dont le nom contient « tv » | AVD démarré si aucun émulateur ne tourne |
+| `WORK_DIR` | `$TMPDIR/nextcloud-dream-test` | médias, `server.log`, `emulator.log`, captures |
+| `PORT` | `8080` | port du faux serveur |
+| `NO_BUILD` | vide | `NO_BUILD=1` réutilise l'APK déjà compilé |
+
+Exemple pour un agent qui a un dossier de travail temporaire :
+
+```bash
+WORK_DIR=/chemin/vers/mon/scratchpad/run NO_BUILD=1 tools/fake-nextcloud/run_emulator_test.sh
+```
+
+### Prérequis
+
+- Un AVD Android TV (voir la [section 5](#5-créer-un-avd-android-tv) s'il n'y en a pas : `emulator -list-avds`).
+- `ffmpeg` (`brew install ffmpeg`) et `python3`.
+- JDK 17 ou 21. Le script le trouve tout seul (Android Studio sur Mac, `/usr/lib/jvm/java-17-openjdk-amd64` sur Linux).
+  **Le JDK 25 du PATH ne marche pas** avec Gradle 8.14 / AGP 8.13.
 
 ---
 
-## 🛠️ Configuration de l'environnement
+## 2. Ce que fait le script, étape par étape
 
-### 1. Configurer les variables d'environnement
+Utile si une étape échoue, ou pour la refaire à la main.
 
-**Dans ton terminal (`~/.zshrc` ou `~/.bashrc`) :**
+1. **Médias de test** (`tools/fake-nextcloud/make_media.sh`) : 3 photos et 4 vidéos fabriquées par ffmpeg, dans `$WORK_DIR/files`.
+2. **Build** : `./gradlew assembleDebug` avec le bon `JAVA_HOME`.
+3. **Émulateur** : démarré s'il n'y en a pas, puis attente de `sys.boot_completed = 1`.
+4. **Installation** : `adb install -r -t`, puis `pm clear fr.midiland.nextclouddream`.
+5. **Faux serveur** (`tools/fake-nextcloud/fake_nextcloud.py`) sur `127.0.0.1:8080`, puis `adb reverse tcp:8080 tcp:8080`.
+6. **Configuration** : le script coupe le clavier virtuel, ouvre l'écran de configuration et saisit les valeurs au D-pad (voir le tableau ci-dessous). Il vérifie les champs avec `uiautomator dump`, descend jusqu'à « Save and sync » et le valide. Il attend ensuite le message « Sync complete ».
+7. **Économiseur** : `screensaver_components` pointé sur notre service, lancé par `Somnambulator`, vérifié par `dumpsys dreams`.
 
-```bash
-# SDK Android
-export ANDROID_SDK_ROOT=$HOME/Library/Android/sdk
-export PATH=$ANDROID_SDK_ROOT/platform-tools:$PATH
-export PATH=$ANDROID_SDK_ROOT/emulator:$PATH
+Configuration saisie :
 
-# JDK (utiliser celui d'Android Studio)
-export JAVA_HOME=/Applications/Android\ Studio.app/Contents/jbr/Contents/Home
-```
+| Champ | Valeur |
+|---|---|
+| Nextcloud server URL | `http://localhost:8080` |
+| Username | `test` |
+| App password | `test-password` |
+| Photo folder | `/Photos/ScreenSaver` |
+| Time each photo is shown | `8` (minimum 5) |
+| Maximum time a video plays | `20` (minimum 10) |
+| Cases à cocher | toutes cochées (valeurs par défaut) |
 
-**Appliquer les changements :**
-```bash
-source ~/.zshrc  # ou ~/.bashrc selon ton shell
-```
+### Le faux serveur
 
-### 2. Vérifier la configuration
+`fake_nextcloud.py` imite juste assez Nextcloud pour l'application :
 
-```bash
-# Vérifier les versions
-java -version          # Doit afficher OpenJDK 21.x (ou 17.x)
-adb --version         # Doit être dans le PATH
-emulator -list-avds   # Doit lister tes AVDs
-```
+- `PROPFIND` (Depth 1) sur `/remote.php/dav/files/test/Photos/ScreenSaver/`, avec `getetag`, `getcontentlength`, `oc:fileid` ;
+- `GET` et `HEAD` avec `Range` (y compris `bytes=N-` et `bytes=-N`) sur les fichiers ;
+- `/index.php/core/preview?fileId=…` : renvoie le JPEG original (pas de réduction) ;
+- authentification Basic obligatoire : `401` sans les bons identifiants.
 
----
+Chaque requête est écrite dans `$WORK_DIR/server.log`. Le client est indiqué entre crochets :
+`[okhttp/…]` pour l'application, `[stagefright/…]` pour le lecteur vidéo d'Android.
 
-## 🔨 Build de l'application
-
-### Build standard (APK debug)
-
-```bash
-cd /Users/midiland/project/NextCloudDreamAndroidTv
-
-# Builder l'APK debug (avec tests)
-./gradlew :app:assembleDebug --no-daemon
-
-# L'APK sera générée ici :
-# app/build/outputs/apk/debug/app-debug.apk
-```
-
-### Exécuter les tests unitaires
-
-```bash
-# Lancer tous les tests JVM (52+ tests)
-./gradlew :app:testDebugUnitTest --no-daemon
-
-# Voir le rapport de couverture (nécessite Jacoco)
-./gradlew jacocoTestReport
-# Rapport disponible dans : app/build/reports/jacoco/jacocoTestReport/html/index.html
-```
+**Limites :** un seul dossier (pas de sous-dossiers), pas de `nc:metadata-files-live-photo`. Une Live Photo n'est donc rattachée que par le nom de base (`IMG_1.jpg` + `IMG_1.mov` de moins de 20 Mo). Pas de géolocalisation non plus dans les médias fabriqués.
 
 ---
 
-## 📺 Gestion des émulateurs Android TV
+## 3. Résultat attendu
 
-### Créer un AVD Android TV 9 (recommandé - même version que Mi Box)
+### Synchro
 
-```bash
-# Lister les images disponibles
-echo "y" | sdkmanager --list | grep "android-tv"
+Message de l'écran de configuration : `Sync complete: 3 photos and 4 videos in the folder.`
+Dans `server.log`, on voit : un PROPFIND, 3 aperçus, des lectures `Range` de 256 Ko sur les
+photos (EXIF) et de quelques Ko sur les vidéos (boîtes MP4). **Aucune vidéo n'est
+téléchargée en entier** : c'est un invariant du projet.
 
-# Créer un AVD Android TV 9 (API 28)
-echo "no" | avdmanager create avd \
-  -n tv28 \
-  -k "system-images;android-28;android-tv;x86" \
-  --device "Android_TV_1080p" \
-  --force
+### Diaporama
+
+| Fichier | Ce qui doit se passer |
+|---|---|
+| `photo_*.jpg` | affichée 8 s, fondu de 1,5 s, horloge en bas à droite |
+| `video_portrait_10s.mp4` (720×1280) | fondu depuis la photo, vidéo entière au centre sur un fond flou, lue jusqu'à la fin (`Completed`) |
+| `video_paysage_15s.mp4` | plein écran, date **« July 14, 2024 »** en bas à gauche (lue dans `mvhd`), lue jusqu'à la fin |
+| `video_courte_3s.mp4` | plus courte qu'une photo : **tourne en boucle** jusqu'à 8 s, puis s'arrête à la fin d'un tour |
+| `video_longue_30s.mov` | **coupée à 20 s** (`Capped`), puis élément suivant |
+
+Lignes de logcat correspondantes (build debug, tag = nom de la classe) :
+
+```
+D MotionLayer: Vidéo VideoStream(http://localhost:8080/…/video_portrait_10s.mp4) : 720x1280, 10 s
+D SlideshowView: Vidéo terminée (Completed) : VideoStream(…/video_portrait_10s.mp4)
+D SlideshowView: Vidéo terminée (Capped) : VideoStream(…/video_longue_30s.mov)
+D SlideshowView: Photo affichée : 451156e7….jpg (plein écran)
 ```
 
-### Créer un AVD Android TV 12
-
-```bash
-# Utiliser l'image API 31 (Android 12)
-echo "no" | avdmanager create avd \
-  -n Android_TV_1080p_API31 \
-  -k "system-images;android-31;android-tv;x86_64" \
-  --device "Android_TV_1080p" \
-  --force
-```
-
-### Lancer un émulateur
-
-```bash
-# Lancer avec interface graphique
-emulator -avd tv28
-
-# Lancer sans interface (pour les tests automatisés)
-emulator -avd tv28 -no-window -no-snapshot-load &
-
-# Attendre que l'émulateur soit prêt (environ 30-60 secondes)
-sleep 60
-adb wait-for-device
-```
-
-### Arrêter un émulateur
-
-```bash
-# Lister les émulateurs en cours
-adb devices
-
-# Arrêter un émulateur spécifique
-adb -s emulator-5554 emu kill
-
-# Arrêter tous les émulateurs
-adb devices | grep emulator | cut -f1 | while read line; do adb -s $line emu kill; done
-```
+Dans `server.log`, chaque vidéo donne un `HEAD` (okhttp), puis des `GET` du lecteur
+(`stagefright`), tous en `200`/`206`. **Un seul `401` venant de stagefright serait un
+bug** : le lecteur n'aurait pas reçu l'en-tête d'authentification.
 
 ---
 
-## 📱 Installation de l'application
-
-### Installer l'APK
+## 4. Vérifier et explorer
 
 ```bash
-# Installer sur un émulateur spécifié
-adb -s emulator-5554 install -r -t app/build/outputs/apk/debug/app-debug.apk
+ADB=~/Library/Android/sdk/platform-tools/adb     # Linux : ~/Android/Sdk/platform-tools/adb
+PKG=fr.midiland.nextclouddream
 
-# Installer sur le seul appareil connecté
-adb install -r -t app/build/outputs/apk/debug/app-debug.apk
+# Journaux de l'application (debug)
+$ADB logcat -d --pid=$($ADB shell pidof $PKG) | grep -E 'MotionLayer|SlideshowView|Slide|PhotoRepository'
+# Avertissements et erreurs seulement
+$ADB logcat -d --pid=$($ADB shell pidof $PKG) '*:W'
+
+# Requêtes reçues par le serveur
+tail -f "$WORK_DIR/server.log"
+
+# Capture d'écran (un agent peut ensuite lire le PNG comme une image)
+$ADB exec-out screencap -p > "$WORK_DIR/shot.png"
+sips -Z 640 "$WORK_DIR/shot.png" --out "$WORK_DIR/shot_small.png"   # Mac : réduire avant de la lire
+
+# Relancer l'économiseur / vérifier que c'est le nôtre
+$ADB shell am start -n com.android.systemui/.Somnambulator
+$ADB shell dumpsys dreams | grep mCurrentDreamName
+
+# Contenu du cache (debug uniquement, commande run-as entre guillemets)
+$ADB shell "run-as $PKG ls -la files/photos"
 ```
 
-### Réinstaller avec effacement des données
+Pour suivre un diaporama, prendre une capture toutes les 8 s environ, pendant 1 à 2 minutes.
+Une capture prise pendant un fondu montre les deux images superposées : c'est normal.
 
-```bash
-# Effacer les données puis réinstaller
-adb -s emulator-5554 shell pm clear fr.midiland.nextclouddream
-adb -s emulator-5554 install -r -t app/build/outputs/apk/debug/app-debug.apk
-```
+### Scénarios supplémentaires
 
-### Lancer l'application
+| Scénario | Comment | Attendu |
+|---|---|---|
+| Serveur coupé pendant une vidéo | `pkill -f fake_nextcloud.py` | bascule sur le cache de photos, pas d'écran noir ; vidéos sautées hors ligne |
+| Serveur revenu | relancer le script avec `NO_BUILD=1` | — |
+| Vidéos désactivées | décocher « Play videos » puis « Save and sync » | 0 vidéo jouée, 0 requête vers une vidéo dans `server.log` |
+| Nouvelle vidéo | déposer un `.mp4`/`.mov` dans `$WORK_DIR/files`, puis « Save and sync » | elle apparaît au cycle suivant |
+| Vidéo cassée | `head -c 100000 video_paysage_15s.mp4 > casse.mp4` dans `$WORK_DIR/files` | écartée, l'élément courant reste affiché |
+| Touche pendant le dream | `$ADB shell input keyevent KEYCODE_DPAD_CENTER` | économiseur fermé en moins d'une seconde, pas d'ANR |
 
-```bash
-# Lancer l'activité principale (écran de configuration)
-adb shell am start -n fr.midiland.nextclouddream/.MainActivity
-
-# Lancer directement l'économiseur (pour test)
-adb shell am start -n fr.midiland.nextclouddream/.dream.NextcloudDreamService
-```
+Pour naviguer dans l'écran de configuration à la main : `KEYCODE_DPAD_UP/DOWN` pour passer
+d'un champ à l'autre, `KEYCODE_DPAD_CENTER` pour cocher ou valider. Pour savoir quel widget
+a le focus : `$ADB shell uiautomator dump /sdcard/ui.xml && $ADB shell cat /sdcard/ui.xml`,
+puis chercher `focused="true"`.
 
 ---
 
-## ⚙️ Configuration de l'application
+## 5. Créer un AVD Android TV
 
-### Configuration manuelle (recommandé)
+`sdkmanager` et `avdmanager` sont dans `$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/`.
 
-1. **Lancer l'application** depuis le launcher de l'émulateur
-2. **Remplir les champs** :
-   - **Server URL** : URL de ton serveur Nextcloud (ex: `https://demo.nextcloud.com`)
-   - **Username** : Ton nom d'utilisateur Nextcloud
-   - **App Password** : Un mot de passe d'application (à générer dans Nextcloud sous Paramètres → Sécurité → Mot de passe d'application)
-   - **Folder Path** : Chemin vers ton dossier (ex: `/Photos`)
-3. **Activer les fonctionnalités** :
-   - ✅ **Show clock** : Affiche l'heure
-   - ✅ **Show photo info** : Affiche date et lieu
-   - ✅ **Play live photos** : Joue les clips Live Photo/Motion Photo
-   - ✅ **Play videos** : **Joue les vidéos seules** (nouvelle fonctionnalité !)
-4. **Tester la connexion** : Clique sur "Test connection"
-5. **Sauvegarder** : Clique sur "Save and sync"
-
-### Configuration minimale pour tester les vidéos
-
-| Champ | Valeur pour test local |
-|-------|------------------------|
-| Server URL | `http://10.0.2.2:8000` |
-| Username | (laisser vide) |
-| App Password | (laisser vide) |
-| Folder Path | `/` |
-| Play videos | ✅ **Coché** |
-
-> **Note** : `10.0.2.2` est l'IP spéciale qui permet à l'émulateur d'accéder à ton Mac local.
-
----
-
-## 🎬 Test des fonctionnalités
-
-### Préparer un dossier de test
-
-Crée un dossier avec différents types de médias :
-
-```
-/ton/dossier/test/
-├── photo1.jpg          # Photo normale
-├── photo2.png          # Photo PNG
-├── live.jpg            # Live Photo (iPhone)
-├── live.mov            # Clip Live Photo
-├── motion.jpg          # Motion Photo (Pixel)
-├── sunset.mp4          # Vidéo seule (< 20 Mo)
-└── vacances.mov        # Vidéo seule
-```
-
-### Lancer un serveur web local
+**Mac Apple Silicon** : uniquement des images arm64, donc API 30 ou plus. L'AVD existant sur cette machine est `Android_TV_1080p_API31`.
 
 ```bash
-cd /ton/dossier/test
-python3 -m http.server 8000
+sdkmanager "system-images;android-31;android-tv;arm64-v8a"
+echo no | avdmanager create avd -n Android_TV_1080p_API31 \
+  -k "system-images;android-31;android-tv;arm64-v8a" -d tv_1080p
 ```
 
-### Configurer l'application pour utiliser ce serveur
-
-Dans l'application :
-- Server URL : `http://10.0.2.2:8000`
-- Username : (vide)
-- App Password : (vide)
-- Folder Path : `/`
-
-### Comportement attendu
-
-| Type de fichier | Comportement |
-|----------------|--------------|
-| `photo1.jpg` | Affichage normal pendant 20 secondes |
-| `live.jpg` + `live.mov` | Photo affichée + clip joué une fois |
-| `motion.jpg` | Photo affichée + clip MP4 intégré joué |
-| `sunset.mp4` | **Vidéo lue en streaming, sans son** |
-| `vacances.mov` | **Vidéo lue en streaming, sans son** |
-
----
-
-## 📊 Vérification via les logs
-
-### Afficher les logs de l'application
+**Linux x86_64** : l'image API 28 = Android TV 9, **la version de la Mi Box**, donc la plus représentative.
 
 ```bash
-# Méthode 1 : Filtrer par nom de package
-adb logcat | grep NextcloudDream
-
-# Méthode 2 : Filtrer par PID
-adb shell "pidof fr.midiland.nextclouddream" | xargs -I {} adb logcat --pid={}
-
-# Méthode 3 : Sauvegarder les logs dans un fichier
-adb logcat -d > logs.txt
-```
-
-### Logs attendus
-
-**Au démarrage de l'économiseur :**
-```
-I/NextcloudDream: Économiseur démarré
-```
-
-**Pendant la synchronisation :**
-```
-I/NextcloudDream: WebDAV : 4 image(s) trouvée(s) dans /test, dont 1 animée(s), et 2 vidéo(s) seule(s)
-I/NextcloudDream: Synchro terminée : 4 photo(s), 2 vidéo(s)
-```
-
-**Pendant la lecture d'une vidéo :**
-```
-I/NextcloudDream: Vidéo seule : sunset.mp4
-D/NextcloudDream: Vidéo sunset.mp4 : 1920x1080, 30 s
-D/NextcloudDream: Vidéo terminée (Completed) : sunset.mp4
-```
-
-**Pour une Live Photo :**
-```
-I/NextcloudDream: Photo animée : live.jpg (clip de 3528 Ko)
-D/NextcloudDream: Clip live_clip.mov : 1280x720, départ à 1043 ms
-```
-
----
-
-## 🌐 Test sans serveur Nextcloud
-
-### Méthode 1 : Utiliser le cache local
-
-1. Copie des fichiers dans le cache de l'application :
-   ```bash
-   # Copier une photo et une vidéo
-   adb push /chemin/vers/photo.jpg /data/local/tmp/
-   adb push /chemin/vers/video.mp4 /data/local/tmp/
-   ```
-
-2. Dans l'application, après la première synchro, les fichiers seront déplacés dans le bon cache.
-
-3. L'économiseur les affichera automatiquement.
-
-### Méthode 2 : Utiliser un serveur web local simple
-
-```bash
-# Dans un terminal, lancer un serveur Python
-cd /ton/dossier/avec/médias
-python3 -m http.server 8000
-
-# Configurer l'application avec :
-# Server URL: http://10.0.2.2:8000
-# Username: (vide)
-# App Password: (vide)
-# Folder Path: /
-```
-
----
-
-## 🛠️ Dépannage
-
-### Problème : L'émulateur ne démarre pas
-
-**Solution 1 : Vérifier les images installées**
-```bash
-sdkmanager --list
-# Si l'image est manquante :
 sdkmanager "system-images;android-28;android-tv;x86"
+echo no | avdmanager create avd -n tv28 -k "system-images;android-28;android-tv;x86" -d tv_1080p
 ```
 
-**Solution 2 : Augmenter la mémoire**
-```bash
-# Modifier la configuration de l'AVD
-android avd
-# Sélectionner ton AVD → Edit → Augmenter la RAM à 2048 Mo
-```
-
-**Solution 3 : Utiliser le mode headless**
-```bash
-emulator -avd tv28 -no-window -no-snapshot-load &
-```
+Dans les deux cas, mettre `hw.keyboard = yes` dans `~/.android/avd/<nom>.avd/config.ini`
+(sinon le clavier de la machine n'est pas transmis à l'émulateur).
 
 ---
 
-### Problème : Le build échoue avec JDK 25
+## 6. Règles pour les agents
 
-**Solution :** Utiliser JDK 17 ou 21 d'Android Studio
+### À faire
 
-```bash
-export JAVA_HOME=/Applications/Android\ Studio.app/Contents/jbr/Contents/Home
-./gradlew clean
-./gradlew :app:assembleDebug
-```
+- **Utiliser le script** plutôt que refaire les étapes à la main. S'il échoue, lire la ligne `ÉCHEC`, corriger la cause, relancer.
+- **Prouver ce qu'on affirme** : une fonctionnalité vidéo n'est « vérifiée » que si l'on a vu la ligne logcat (`Completed`, `Capped`…), la requête dans `server.log` **et** une capture d'écran cohérente. Ne jamais écrire « ça marche » après un simple build.
+- **Citer les preuves** dans le compte rendu : extraits de logs, nombre de requêtes, ce qu'on voit sur la capture.
+- **Dire ce qui n'a pas été testé.** L'émulateur n'est ni la Mi Box (débit Wi-Fi, décodage matériel armeabi-v7a), ni un vrai Nextcloud, ni de vraies vidéos d'iPhone (HEVC/Dolby Vision).
+- Toujours utiliser le chemin complet d'`adb` : les shells non interactifs ne l'ont pas dans leur PATH.
+- Mettre les fichiers temporaires (captures, médias, journaux) **hors du dépôt**, dans `WORK_DIR`.
 
----
+### À ne pas faire (erreurs déjà commises)
 
-### Problème : ADB ne trouve pas l'appareil
+| Erreur | Pourquoi c'est faux |
+|---|---|
+| `python3 -m http.server` comme « serveur Nextcloud » | Il ne connaît ni PROPFIND, ni l'authentification, ni `core/preview`. La synchro échoue. Utiliser `fake_nextcloud.py`. |
+| URL `http://10.0.2.2:…` | Le HTTP en clair n'est autorisé que vers `localhost`/`127.0.0.1` (`app/src/debug/res/xml/network_security_config.xml`). Utiliser `adb reverse` + `http://localhost:8080`. |
+| Ajouter `usesCleartextTraffic` ou un `network_security_config` dans `app/src/main/` | Cela ouvrirait le HTTP en clair **dans la release**, ce qui est interdit (voir CLAUDE.md). Les réglages de test vont **uniquement** dans `app/src/debug/`. |
+| Laisser l'identifiant ou le mot de passe vides | L'application refuse d'enregistrer (« Renseignez l'URL, l'identifiant… »). |
+| `adb shell am start -n …/.dream.NextcloudDreamService` | C'est un service, pas une activité. Passer par `Somnambulator` (émulateur) ou l'action `SLEEP` (Mi Box, voir CLAUDE.md). |
+| `adb logcat \| grep NextcloudDream` sur un build debug | En debug, le tag est le nom de la classe (`MotionLayer`, `SlideshowView`…). Le tag `NextcloudDream` n'existe qu'en release. |
+| `adb shell input text` avec le clavier virtuel actif | Le clavier capte ou déforme la saisie. Le désactiver (`ime disable`, le script le fait) puis `adb shell ime reset` à la fin. |
+| `grep -E '\s'` dans un script | Le grep de macOS ne connaît pas `\s`. Utiliser `awk` ou `[[:space:]]`. |
+| `ffmpeg` mis dans une variable (`ff="ffmpeg -y"; $ff …`) | zsh ne découpe pas les variables en mots : « command not found ». Utiliser une fonction. |
+| Variable de boucle nommée `path` en zsh | Elle est liée à `PATH` : le shell ne trouve plus aucune commande. |
+| Lire un champ du formulaire par `uiautomator` après avoir fait défiler l'écran | Un champ sorti de l'écran disparaît du dump : son texte paraît vide. Vérifier juste après la saisie. |
+| `withTimeout` dans le diaporama | Son dépassement est une `CancellationException` : il arrête tout le diaporama. Toujours `withTimeoutOrNull`. |
 
-**Solution :**
-```bash
-# Lister tous les appareils
-adb devices
+### Compte rendu type
 
-# Si aucun appareil, vérifier que l'émulateur est bien lancé
-ps aux | grep emulator
-
-# Redémarrer le serveur ADB
-adb kill-server
-adb start-server
-```
-
----
-
-### Problème : L'application crash au démarrage
-
-**Solution :** Voir les logs détaillés
-```bash
-adb logcat -d > crash_log.txt
-# Chercher des lignes avec "Exception" ou "Error"
-grep -i "exception\|error\|crash" crash_log.txt
-```
+> Testé sur l'émulateur `Android_TV_1080p_API31` (API 31), faux serveur local, build debug du commit `abc1234`.
+> Synchro : 3 photos, 4 vidéos, aucune vidéo téléchargée en entier.
+> Portrait 10 s `Completed` ; paysage 15 s `Completed`, date affichée ; courte 3 s en boucle ; `.mov` 30 s `Capped` à 20 s.
+> 0 réponse 401 au lecteur vidéo. Captures : `…/dream_3.png`.
+> Non vérifié : Mi Box, vrai Nextcloud, vidéos HEVC d'iPhone.
 
 ---
 
-### Problème : Les vidéos ne se lisent pas
+## 7. Mi Box (rappel)
 
-**Vérifications :**
-
-1. **Vérifier que `playVideos` est activé** dans les paramètres
-2. **Vérifier le format** : Seuls MP4 et MOV sont supportés
-3. **Vérifier la taille** : Les clips Live Photo sont limités à 20 Mo
-4. **Vérifier les codecs** : Certaines vidéos nécessitent des codecs spécifiques
-
-**Test avec une vidéo simple :**
-```bash
-# Créer une vidéo de test MP4 (3 secondes, sans son)
-ffmpeg -f lavfi -i testsrc=duration=3:size=640x480:rate=30 -c:v libx264 -pix_fmt yuv420p -y test_video.mp4
-```
-
----
-
-## 📝 Checklist avant de commencer un test
-
-- [ ] Environnement configuré (`ANDROID_SDK_ROOT`, `JAVA_HOME`, `PATH`)
-- [ ] Emulateur Android TV créé (`tv28` recommandé)
-- [ ] APK build avec succès (`./gradlew assembleDebug`)
-- [ ] Serveur de test prêt (Nextcloud ou serveur local)
-- [ ] Dossier de test avec photos + vidéos
-- [ ] Application configurée avec `playVideos = true`
-
----
-
-## 📚 Ressources utiles
-
-- [Documentation Android TV](https://developer.android.com/training/tv)
-- [Commandes ADB](https://developer.android.com/studio/command-line/adb)
-- [Émulateur Android](https://developer.android.com/studio/run/emulator)
-- [Générer un mot de passe d'application Nextcloud](https://docs.nextcloud.com/server/latest/user_manual/en/webapp_settings.html#app-passwords)
-
----
-
-## 🎯 Commandes rapide (Cheat Sheet)
-
-```bash
-# === CONFIGURATION ===
-export ANDROID_SDK_ROOT=$HOME/Library/Android/sdk
-export PATH=$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$PATH
-export JAVA_HOME=/Applications/Android\ Studio.app/Contents/jbr/Contents/Home
-
-# === BUILD ===
-cd /Users/midiland/project/NextCloudDreamAndroidTv
-./gradlew assembleDebug
-./gradlew testDebugUnitTest
-
-# === ÉMULATEUR ===
-emulator -avd tv28
-adb devices
-adb -s emulator-5554 shell am start -n fr.midiland.nextclouddream/.MainActivity
-
-# === INSTALLATION ===
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-
-# === LOGS ===
-adb logcat | grep NextcloudDream
-
-# === NETTOYAGE ===
-adb uninstall fr.midiland.nextclouddream
-adb -s emulator-5554 emu kill
-```
-
----
-
-**Document maintenu par :** Mistral Vibe  
-**Dernière mise à jour :** 17 octobre 2026
+Les détails sont dans CLAUDE.md (section « Mi Box »). En bref : `adb connect 192.168.1.XX:5555`.
+Installer la **release** (stockage presque plein). Lancer l'économiseur avec
+`adb shell am start -a com.google.android.pano.action.SLEEP -n com.android.tv.settings/.device.display.daydream.DaydreamVoiceAction`.
+Logs : `adb logcat -s NextcloudDream:V`. Le faux serveur n'y est pas utilisable : la release refuse le HTTP en clair.

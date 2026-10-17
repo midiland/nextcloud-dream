@@ -122,3 +122,17 @@ app/src/androidTest/java/...  # Tests instrumentés Android
 - [Conventional Commits](https://www.conventionalcommits.org/)
 - [Git Best Practices](https://git-scm.com/book/en/v2/Distributed-Git-Contributing-to-a-Project)
 - [Android Testing Guide](https://developer.android.com/training/testing)
+
+## 🧪 Tester sur l'émulateur
+
+**Lire `docs/TESTING_GUIDE.md` avant tout test sur émulateur.** Une seule commande monte
+tout (faux serveur Nextcloud, configuration de l'application, économiseur lancé) :
+
+```bash
+tools/fake-nextcloud/run_emulator_test.sh
+```
+
+- Ne jamais utiliser `python3 -m http.server` ni `http://10.0.2.2` : la synchro échoue.
+- Ne jamais autoriser le HTTP en clair dans `app/src/main/` (release) : seulement dans `app/src/debug/`.
+- Une fonctionnalité n'est « vérifiée » qu'avec des preuves : ligne logcat, requête dans
+  `server.log` et capture d'écran. Dire aussi ce qui n'a pas été testé.
