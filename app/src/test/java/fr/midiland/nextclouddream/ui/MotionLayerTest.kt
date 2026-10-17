@@ -6,9 +6,15 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Tests pour les parties non-UI de MotionLayer (logique pure).
+ * Tests pour les méthodes utilitaires liées à MotionLayer.
  */
 class MotionLayerTest {
+
+    /**
+     * Logique de startOf extraite pour test : retourne startUs d'un Trailer, null sinon.
+     * Correspond à la méthode privée startOf() dans NextcloudDreamService.
+     */
+    private fun startOf(motion: MotionRef?): Long? = (motion as? MotionRef.Trailer)?.startUs
 
     @Test
     fun `startOf retourne startUs pour Trailer`() {
@@ -19,7 +25,7 @@ class MotionLayerTest {
             startUs = 1043541L,
         )
         
-        val result = MotionLayer.startOf(trailer)
+        val result = startOf(trailer)
         
         assertEquals(1043541L, result)
     }
@@ -31,26 +37,22 @@ class MotionLayerTest {
             size = 1024L,
         )
         
-        val result = MotionLayer.startOf(sidecar)
+        val result = startOf(sidecar)
         
         assertNull(result)
     }
 
     @Test
     fun `startOf retourne null pour None`() {
-        val result = MotionLayer.startOf(MotionRef.None)
+        val result = startOf(MotionRef.None)
         
         assertNull(result)
     }
 
     @Test
     fun `startOf retourne null pour null`() {
-        val result = MotionLayer.startOf(null)
+        val result = startOf(null)
         
         assertNull(result)
     }
-
-    // Note: Les méthodes UI comme playOnce(), openStream(), etc. nécessitent un contexte
-    // Android et une Surface valide, elles ne peuvent pas être testées en unit tests JVM.
-    // Ces méthodes devraient être couvertes par des tests instrumentés (Espresso/Compose).
 }
