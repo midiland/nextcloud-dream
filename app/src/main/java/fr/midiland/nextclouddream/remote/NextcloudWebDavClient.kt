@@ -15,7 +15,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
-/** Photo distante telle que listée par PROPFIND. */
+/** Photo (ou vidéo seule) distante telle que listée par PROPFIND. */
 data class RemotePhoto(
     val url: HttpUrl,
     val name: String,
@@ -25,6 +25,8 @@ data class RemotePhoto(
     val fileId: Long?,
     /** Vidéo de Live Photo (iPhone) : un fichier distinct, désigné par le serveur. */
     val sidecar: SidecarVideo? = null,
+    /** Vidéo rattachée à aucune photo : jouée seule, en streaming. */
+    val isVideo: Boolean = false,
 )
 
 /** Vidéo d'une Live Photo, stockée à côté de la photo. */
@@ -53,6 +55,7 @@ class HttpStatusException(val code: Int, message: String) : IOException(message)
  *  - listing WebDAV (PROPFIND)
  *  - aperçu réduit généré par le serveur (API core/preview)
  *  - téléchargement complet ou partiel (début du fichier, pour l'EXIF)
+ *  - en-têtes de streaming des vidéos (lues par MediaPlayer, pas par ce client)
  *
  * Toutes les méthodes sont bloquantes : à appeler depuis Dispatchers.IO.
  */
@@ -86,46 +89,17 @@ class NextcloudWebDavClient(
                     entry.url.encodedPath.trimEnd('/') == dirUrl.encodedPath.trimEnd('/') -> Unit
                     entry.isCollection -> pending.add(entry.url)
                     isImage(entry.name) -> images += entry
-                    // Jamais affichées comme des photos : seulement rattachées à l'une d'elles
+                    // Rattachées à une photo (Live Photo) ou, à défaut, jouées seules
                     isVideo(entry.name) -> videos += entry
                 }
             }
         }
-        val photos = pairLivePhotos(images, videos)
+        val media = pairMedia(images, videos)
         Timber.i(
-            "WebDAV : %d image(s) trouvée(s) dans %s, dont %d animée(s)",
-            photos.size, folderPath, photos.count { it.sidecar != null },
+            "WebDAV : %d image(s) trouvée(s) dans %s, dont %d animée(s), et %d vidéo(s) seule(s)",
+            images.size, folderPath, media.count { it.sidecar != null }, media.count { it.isVideo },
         )
-        return photos
-    }
-
-    /**
-     * Rattache à chaque photo la vidéo de sa Live Photo. Nextcloud donne le fileid du
-     * fichier jumeau (depuis la version 29) ; sinon on retombe sur la convention de
-     * l'application iOS, qui envoie les deux fichiers sous le même nom de base.
-     *
-     * Le repli est volontairement restreint aux `.mov` et aux fichiers de taille
-     * plausible : un `.mp4` qui porterait le même nom qu'une photo serait sans doute
-     * une vidéo sans rapport, qu'il ne faut ni télécharger ni jouer.
-     */
-    private fun pairLivePhotos(images: List<DavEntry>, videos: List<DavEntry>): List<RemotePhoto> {
-        val byFileId = videos.mapNotNull { video -> video.fileId?.let { it to video } }.toMap()
-        val byStem = videos
-            .filter { extensionOf(it.name) == "mov" && it.size <= MAX_SIDECAR_BYTES }
-            .associateBy { it.name.substringBeforeLast('.').lowercase() }
-
-        return images.map { image ->
-            val video = byFileId[image.livePhotoFileId]
-                ?: byStem[image.name.substringBeforeLast('.').lowercase()]
-            RemotePhoto(
-                url = image.url,
-                name = image.name,
-                etag = image.etag,
-                size = image.size,
-                fileId = image.fileId,
-                sidecar = video?.let { SidecarVideo(it.url, it.size) },
-            )
-        }
+        return media
     }
 
     /** Télécharge le fichier complet [url] dans [destination] (écrasé s'il existe). */
@@ -193,6 +167,47 @@ class NextcloudWebDavClient(
         }
     }
 
+    /**
+     * Lit [length] octets de [url] à partir de [from] (requête Range), en mémoire.
+     * Sert à parcourir les boîtes d'une vidéo pour en lire la date et le lieu sans la
+     * télécharger. Exige une réponse 206 : un serveur qui renverrait le fichier entier
+     * ferait télécharger toute la vidéo.
+     */
+    fun readRange(url: HttpUrl, from: Long, length: Int): ByteArray {
+        val request = request(url).newBuilder()
+            .header("Range", "bytes=$from-${from + length - 1}")
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            if (response.code != 206) {
+                throw HttpStatusException(response.code, "GET Range ${url.encodedPath} : HTTP ${response.code}")
+            }
+            val body = response.body ?: throw IOException("GET Range ${url.encodedPath} : réponse vide")
+            return body.bytes()
+        }
+    }
+
+    /**
+     * Vérifie qu'un fichier est joignable (requête HEAD, rien n'est téléchargé).
+     * Avant de lancer le streaming d'une vidéo : distingue un fichier supprimé
+     * (erreur propre au fichier) d'un serveur injoignable.
+     * @throws HttpStatusException si le serveur répond une erreur.
+     */
+    fun probe(url: HttpUrl) {
+        val request = Request.Builder().url(url).header("Authorization", credentials).head().build()
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw HttpStatusException(response.code, "HEAD ${url.encodedPath} : HTTP ${response.code}")
+            }
+        }
+    }
+
+    /**
+     * En-têtes à transmettre au lecteur vidéo pour lire un fichier en streaming.
+     * **Contient le mot de passe d'application** : à ne jamais journaliser, ni
+     * placer dans une URL (MediaPlayer journalise les URL qu'il ouvre).
+     */
+    fun streamHeaders(): Map<String, String> = mapOf("Authorization" to credentials)
+
     private fun request(url: HttpUrl): Request =
         Request.Builder().url(url).header("Authorization", credentials).get().build()
 
@@ -242,7 +257,10 @@ class NextcloudWebDavClient(
 
         val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "heic", "heif", "webp")
 
-        /** Vidéos des Live Photos : jamais affichées seules, seulement jouées sur une photo. */
+        /**
+         * Vidéos : jouées sur leur photo quand ce sont des Live Photos, sinon seules,
+         * en streaming (voir [pairMedia]).
+         */
         val VIDEO_EXTENSIONS = setOf("mov", "mp4")
 
         // Un clip de Live Photo pèse quelques Mo ; au-delà, c'est une vidéo sans rapport
@@ -258,6 +276,59 @@ class NextcloudWebDavClient(
         fun mayHaveExif(fileName: String): Boolean = extensionOf(fileName) !in setOf("png", "webp")
 
         private fun extensionOf(fileName: String) = fileName.substringAfterLast('.', "").lowercase()
+
+        /**
+         * Répartit les vidéos du dossier : celles qui accompagnent une photo (Live Photo)
+         * lui sont rattachées, les autres deviennent des vidéos seules.
+         *
+         * Rattachement : Nextcloud donne le fileid du fichier jumeau (depuis la version 29) ;
+         * sinon on retombe sur la convention de l'application iOS, qui envoie les deux
+         * fichiers sous le même nom de base. Ce repli est restreint aux `.mov` de taille
+         * plausible : un `.mp4` qui porterait le même nom qu'une photo serait sans doute
+         * une vidéo sans rapport.
+         *
+         * Une vidéo dont le jumeau désigné est une photo du listing n'est jamais jouée
+         * seule, même si la photo ne pointe pas vers elle : le serveur marque les deux
+         * côtés d'une paire, il suffit qu'un seul le dise.
+         *
+         * @return les photos (avec leur vidéo éventuelle), puis les vidéos seules.
+         */
+        internal fun pairMedia(images: List<DavEntry>, videos: List<DavEntry>): List<RemotePhoto> {
+            val byFileId = videos.mapNotNull { video -> video.fileId?.let { it to video } }.toMap()
+            val byStem = videos
+                .filter { extensionOf(it.name) == "mov" && it.size <= MAX_SIDECAR_BYTES }
+                .associateBy { it.name.substringBeforeLast('.').lowercase() }
+
+            val attached = mutableSetOf<DavEntry>()
+            val photos = images.map { image ->
+                val video = byFileId[image.livePhotoFileId]
+                    ?: byStem[image.name.substringBeforeLast('.').lowercase()]
+                video?.let(attached::add)
+                RemotePhoto(
+                    url = image.url,
+                    name = image.name,
+                    etag = image.etag,
+                    size = image.size,
+                    fileId = image.fileId,
+                    sidecar = video?.let { SidecarVideo(it.url, it.size) },
+                )
+            }
+
+            val imageIds = images.mapNotNull { it.fileId }.toSet()
+            val standalone = videos
+                .filter { it !in attached && it.livePhotoFileId !in imageIds }
+                .map { video ->
+                    RemotePhoto(
+                        url = video.url,
+                        name = video.name,
+                        etag = video.etag,
+                        size = video.size,
+                        fileId = video.fileId,
+                        isVideo = true,
+                    )
+                }
+            return photos + standalone
+        }
 
         // metadata-files-live-photo : Nextcloud 29 et plus. Une propriété inconnue du
         // serveur est simplement renvoyée vide, le listing fonctionne sans elle.

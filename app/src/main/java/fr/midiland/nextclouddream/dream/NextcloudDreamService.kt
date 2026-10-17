@@ -124,6 +124,7 @@ class NextcloudDreamService : DreamService() {
      */
     private suspend fun runSlideshow() {
         val intervalMs = settings.slideIntervalSeconds * 1000L
+        val videoCapMs = settings.maxVideoSeconds * 1000L
         val showPhotoInfo = settings.showPhotoInfo
         awaitPhotos()
         hideMessage()
@@ -153,24 +154,40 @@ class NextcloudDreamService : DreamService() {
                         val metadata = if (showPhotoInfo) slide.metadata else null
                         // Un clip ne doit jamais déborder sur la photo suivante
                         motionJob?.cancelAndJoin()
-                        if (!slideshowView.showPhoto(slide.file) { updatePhotoInfo(metadata) }) {
-                            // Fichier corrompu ou format non décodable : supprimé du cache
-                            // (re-téléchargé au prochain passage) et écarté de ce cycle
-                            Timber.w("Impossible d'afficher %s, photo ignorée", slide.key)
-                            repository.evict(slide.key)
-                            slides.remove(slide.key)
-                            continue
-                        }
+                        when (slide) {
+                            is PhotoSlide -> {
+                                if (!slideshowView.showPhoto(slide.file) { updatePhotoInfo(metadata) }) {
+                                    // Fichier corrompu ou format non décodable : supprimé du cache
+                                    // (re-téléchargé au prochain passage) et écarté de ce cycle
+                                    Timber.w("Impossible d'afficher %s, photo ignorée", slide.key)
+                                    repository.evict(slide.key)
+                                    slides.remove(slide.key)
+                                    continue
+                                }
 
-                        // Le clip se joue pendant l'affichage, sans retarder la suite
-                        motionJob = prepared.clip?.let { clip ->
-                            launch { slideshowView.playMotion(clip, startOf(slide.motion)) }
-                        }
+                                // Le clip se joue pendant l'affichage, sans retarder la suite
+                                motionJob = prepared.clip?.let { clip ->
+                                    launch { slideshowView.playMotion(clip, startOf(slide.motion)) }
+                                }
 
-                        // Une photo d'avance : la suivante, et son clip, se préparent
-                        // pendant l'affichage de celle-ci
-                        prefetched = async { prepare(slides.next()) }
-                        delay(intervalMs)
+                                // Une photo d'avance : la suivante, et son clip, se préparent
+                                // pendant l'affichage de celle-ci
+                                prefetched = async { prepare(slides.next()) }
+                                delay(intervalMs)
+                            }
+                            is VideoSlide -> {
+                                // L'élément suivant se prépare pendant la vidéo (jamais une autre
+                                // vidéo à l'avance : elles ne sont lues qu'au moment de les jouer)
+                                prefetched = async { prepare(slides.next()) }
+                                // Pas de delay ensuite : la vidéo a occupé l'écran le temps voulu
+                                if (!slideshowView.playVideo(slide.stream, videoCapMs, minMs = intervalMs) { updatePhotoInfo(metadata) }) {
+                                    // Injoignable, illisible ou trop lente : écartée de ce cycle,
+                                    // l'élément courant reste à l'écran et le diaporama continue
+                                    Timber.w("Vidéo ignorée : %s", slide.key)
+                                    slides.remove(slide.key)
+                                }
+                            }
+                        }
                     }
                 }
             } catch (e: CancellationException) {
@@ -182,12 +199,16 @@ class NextcloudDreamService : DreamService() {
         }
     }
 
-    /** Photo prête, avec son clip s'il a pu être récupéré à l'avance. */
+    /** Élément prêt, avec le clip de la photo animée s'il a pu être récupéré à l'avance. */
     private class Prepared(val slide: Slide, val clip: File?)
 
     /** Télécharge le clip de la photo animée, le cas échéant. N'échoue jamais. */
-    private suspend fun prepare(slide: Slide?): Prepared? =
-        slide?.let { Prepared(it, repository.fetchMotion(it.key, it.motion)) }
+    private suspend fun prepare(slide: Slide?): Prepared? = when (slide) {
+        null -> null
+        is PhotoSlide -> Prepared(slide, repository.fetchMotion(slide.key, slide.motion))
+        // Rien à préparer : la vidéo n'est ouverte qu'au moment de la jouer
+        is VideoSlide -> Prepared(slide, clip = null)
+    }
 
     /**
      * Position de l'image fixe dans le clip, connue pour un Motion Photo : la lecture
@@ -240,7 +261,9 @@ class NextcloudDreamService : DreamService() {
      */
     private suspend fun syncAndWaitForIndex(): List<IndexedPhoto> {
         val sync = scope.launch {
-            repository.syncNow().onSuccess { count -> Timber.i("Synchro terminée : %d photo(s)", count) }
+            repository.syncNow().onSuccess { count ->
+                Timber.i("Synchro terminée : %d photo(s), %d vidéo(s)", count.photos, count.videos)
+            }
         }
         while (sync.isActive) {
             delay(INDEX_POLL_INTERVAL_MS)

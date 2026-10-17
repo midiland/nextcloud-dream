@@ -20,6 +20,19 @@
     <string name="config_show_clock">Show the time and date</string>
     <string name="config_show_photo_info">Show where and when the photo was taken</string>
     <string name="config_play_live_photos">Play live photos (iPhone and Pixel)</string>
+    <string name="config_play_videos">Play videos (muted, streamed from Nextcloud)</string>
+    <string name="config_max_video">Maximum time a video plays (seconds)</string>
+    <plurals name="count_photos">
+        <item quantity="one">%1$d photo</item>
+        <item quantity="other">%1$d photos</item>
+    </plurals>
+    <plurals name="count_videos">
+        <item quantity="one">%1$d video</item>
+        <item quantity="other">%1$d videos</item>
+    </plurals>
+    <!-- %1$s : nombre de photos (count_photos), %2$s : nombre de vidéos (count_videos) -->
+    <string name="config_sync_done_mixed">Sync complete: %1$s and %2$s in the folder.</string>
+    <string name="config_test_ok_mixed">Connection successful: %1$s and %2$s found.</string>
     <string name="config_save">Save and sync</string>
     <string name="config_test">Test connection</string>
     <string name="config_incomplete">Please enter the URL, the username and the app password.</string>

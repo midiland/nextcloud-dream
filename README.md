@@ -11,6 +11,7 @@ A screensaver for **Android TV** that shows a slideshow of the photos in a folde
   - landscape photos fill the screen;
   - portrait and square photos are shown in full, over a blurred background taken from the photo itself.
 - **Live photos move.** When a photo carries a live part — an iPhone **Live Photo** or a Pixel **Motion Photo** — the short clip plays once, silently, then the still comes back. Nothing to prepare: both are detected on the server as they are. Can be turned off in the settings.
+- **Videos play too.** A video in the folder (`.mp4`, `.mov`) that is not the live part of a photo plays muted, streamed from Nextcloud: nothing is stored on the device. Its date and place are shown like a photo's. A video shorter than a photo's display time loops until that time is reached; a long one fades out at a configurable cap (60 s by default).
 - **Date taken and location** in the bottom-left corner ("31 October 2022 — Paris, France"). Both come from the photo's EXIF data; the place name is computed from the GPS coordinates.
 - Current time and date in the bottom-right corner. The clock shifts slightly every minute to prevent burn-in on OLED screens.
 - Random order, without a photo coming back too soon.
@@ -45,6 +46,7 @@ Nextcloud ◄──────────────┤  server-resized previ
 - **During the slideshow:** for each photo, the screensaver uses the cached copy if there is one; otherwise it asks Nextcloud for a **resized preview**. If the server can't generate one (for example HEIC without a dedicated module), it downloads the original and resizes it on the device.
 - **Server unreachable:** the slideshow continues with the photos in the fallback cache, and retries the network every 5 minutes.
 - **Live photos:** the clip is fetched during the previous photo, like the images themselves — for a Pixel, with a range request that reads only the video glued to the end of the JPEG. Clips live in their own 20 MB cache, so they never take room from the photos that keep the slideshow running offline. If the clip is not ready in time, the photo is simply shown without it.
+- **Videos:** streamed straight from Nextcloud by the system video player, with the same app password, and never downloaded or cached. Their date and place are read during the sync from the video's own metadata, with a few small range requests (the index of a phone video is often at the very end of the file). Offline, videos are skipped and the slideshow carries on with the cached photos. A video that cannot start within 20 s, or that stalls for 15 s, is skipped too.
 - **Storage almost full:** the device is never filled up; downloads stop when less than 30 MB of usable space remains.
 
 ---
@@ -57,7 +59,7 @@ Nextcloud ◄──────────────┤  server-resized previ
    - Enter a name such as "Mi Box", then click **Create new app password**.
    - Write down the generated password. You can revoke it at any time.
 
-Supported formats: JPG, JPEG, PNG, HEIC/HEIF, WebP. A `.MOV` or `.MP4` sitting next to a photo is never shown on its own — it is only used as the live part of that photo.
+Supported formats: JPG, JPEG, PNG, HEIC/HEIF, WebP for photos; MP4 and MOV for videos (H.264, and HEVC where the device can decode it). A `.MOV` paired with a photo (same name, or linked by Nextcloud) is used as the live part of that photo; any other video is played on its own.
 
 > The server must be reachable over **HTTPS with a valid certificate**. Plain HTTP and self-signed certificates are not supported yet.
 >
@@ -120,7 +122,7 @@ adb install -r app/build/outputs/apk/release/app-release.apk   # APK built local
    - username
    - app password
    - folder
-   - display time, refresh interval, fallback cache size, clock, date and location, live photos
+   - display time, maximum video time, refresh interval, fallback cache size, clock, date and location, live photos, videos
 3. Click **Test connection**: the number of photos found should be displayed.
 4. Click **Save and sync**.
 
@@ -328,6 +330,7 @@ Press any key on the remote to exit the screensaver.
 | Error 401 | Wrong username or app password. |
 | Error 404 | Wrong folder path. It is relative to the account's root; a shared folder may have a different path. |
 | A live photo does not move | The clip was not ready in time, or could not be fetched (it is always optional). Check that **Play live photos** is on, that free space is above 30 MB, and look for "Clip indisponible" in the logs. A photo exported through Google Photos usually loses its motion part. |
+| A video is never shown | Check that **Play videos** is on. Videos need the server: they are skipped offline. Look for "Vidéo ignorée" in the logs — the device may not decode that format (some iPhone HEVC or Dolby Vision files), or the stream was too slow to start. |
 | No place name under the date | The photo has no GPS coordinates (camera without GPS), or the geocoder was unreachable: it retries at the next sync. |
 | Logs: "Aperçu indisponible … téléchargement de l'original" (preview unavailable, downloading original) | The server doesn't generate previews for this format (often HEIC). It still works, just more slowly. |
 | `adb: more than one device/emulator` | Add `-s <device>` (see `adb devices`). |
@@ -348,16 +351,17 @@ app/src/main/java/fr/midiland/nextclouddream/
 │   └── PhotoPlaylist.kt             random order without close repeats
 ├── ui/
 │   ├── SlideshowView.kt             display, framing, cross-fade
-│   ├── MotionLayer.kt               plays the clip of a live photo, once and muted
+│   ├── MotionLayer.kt               plays live photo clips and streamed videos, muted
 │   └── BlurredBackground.kt         blurred background for portrait photos
 ├── photos/
 │   ├── PhotoRepository.kt           index sync, on-the-fly download, fallback logic
 │   ├── PhotoSource.kt               what the screensaver needs from the repository
-│   ├── IndexedPhoto.kt, PhotoMetadata.kt, MotionRef.kt, FetchResult.kt   models
+│   ├── IndexedPhoto.kt, PhotoMetadata.kt, MotionRef.kt, FetchResult.kt, VideoStream.kt, MediaCount.kt   models
 ├── remote/
 │   ├── NextcloudWebDavClient.kt     WebDAV, Nextcloud previews, partial reads
 │   ├── MultistatusParser.kt         PROPFIND response parsing
 │   ├── MotionPhoto.kt               finds the video embedded in a Pixel JPEG
+│   ├── Mp4Metadata.kt               date + GPS of a video, read from its MP4/QuickTime boxes
 │   ├── ExifReader.kt                date taken + GPS from EXIF
 │   └── PlaceResolver.kt             GPS coordinates → place name
 ├── storage/

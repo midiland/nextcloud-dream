@@ -5,26 +5,38 @@ import fr.midiland.nextclouddream.photos.IndexedPhoto
 import fr.midiland.nextclouddream.photos.MotionRef
 import fr.midiland.nextclouddream.photos.PhotoMetadata
 import fr.midiland.nextclouddream.photos.PhotoSource
+import fr.midiland.nextclouddream.photos.VideoStream
 import timber.log.Timber
 import java.io.File
 import kotlin.random.Random
 
-/** Photo prête à l'écran : fichier local et informations à afficher. */
-class Slide(
-    val key: String,
+/** Élément prêt à l'écran, avec les informations à afficher (date, lieu). */
+sealed class Slide(val key: String, val metadata: PhotoMetadata?)
+
+/** Photo : fichier local (cache de secours). */
+class PhotoSlide(
+    key: String,
+    metadata: PhotoMetadata?,
     val file: File,
-    val metadata: PhotoMetadata?,
     /** Vidéo à jouer par-dessus, si la photo est animée. Le clip lui-même est
      *  récupéré par l'économiseur, pendant l'affichage de la photo précédente. */
     val motion: MotionRef? = null,
-)
+) : Slide(key, metadata)
+
+/** Vidéo seule, lue en streaming : jamais disponible hors connexion. */
+class VideoSlide(
+    key: String,
+    metadata: PhotoMetadata?,
+    val stream: VideoStream,
+) : Slide(key, metadata)
 
 /**
  * Choisit la prochaine photo à afficher :
  *  - en ligne : depuis le cache de secours si elle y est, sinon téléchargée maintenant ;
  *    une photo indisponible (supprimée, aperçu impossible) est simplement sautée ;
  *  - serveur injoignable : photos de la playlist déjà en cache, et le réseau
- *    n'est retenté qu'après OFFLINE_RETRY_MS.
+ *    n'est retenté qu'après OFFLINE_RETRY_MS. Les vidéos seules, jamais en cache,
+ *    sont alors sautées.
  *
  * Indépendant d'Android (source et horloge injectées) : testable sur la JVM.
  * Non thread-safe : appelé depuis un seul thread (le thread principal de l'économiseur).
@@ -73,7 +85,8 @@ class SlideSource(
             if (photo == null || isOffline) return cachedSlide(key)
 
             when (val result = photos.fetchForDisplay(photo)) {
-                is FetchResult.Ready -> return Slide(key, result.file, photo.metadata, photo.motion)
+                is FetchResult.Ready -> return PhotoSlide(key, photo.metadata, result.file, photo.motion)
+                is FetchResult.Stream -> return VideoSlide(key, photo.metadata, result.stream)
                 FetchResult.Unavailable -> Unit // photo suivante
                 FetchResult.Offline -> {
                     Timber.w("Serveur injoignable, bascule sur le cache de secours")
@@ -116,15 +129,17 @@ class SlideSource(
      * cycles, peut ne contenir aucune des photos en cache ; deux cycles en contiennent
      * forcément un complet, donc toutes les photos.
      */
-    private suspend fun cachedSlide(key: String): Slide? {
+    private suspend fun cachedSlide(key: String): PhotoSlide? {
         val cached = photos.getCachedPhotos().associateBy { it.nameWithoutExtension }
         if (cached.isEmpty()) return null
         var candidate: String? = key
         repeat(2 * playlist.size) {
             val current = candidate ?: return null
-            cached[current]?.let { file ->
-                val photo = indexByKey[current]
-                return Slide(current, file, photo?.metadata, photo?.motion)
+            val photo = indexByKey[current]
+            // Une vidéo n'est jamais en cache ; par prudence, on ignore un fichier qui
+            // aurait été mis en cache sous sa clé par une version antérieure
+            if (photo?.isVideo != true) {
+                cached[current]?.let { file -> return PhotoSlide(current, photo?.metadata, file, photo?.motion) }
             }
             candidate = playlist.next()
         }

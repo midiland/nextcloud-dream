@@ -14,7 +14,7 @@ export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 export ANDROID_SDK_ROOT=$HOME/Android/Sdk
 ./gradlew assembleDebug        # APK debug ~11 Mo, logs Timber actifs, run-as possible
 ./gradlew assembleRelease      # APK release ~1,8 Mo (R8), signé avec la clé debug, logs INFO+ (tag NextcloudDream)
-./gradlew testDebugUnitTest    # 53 tests, ~1 min à froid
+./gradlew testDebugUnitTest    # 84 tests, ~1 min à froid
 ```
 
 - Debug et release ont la même signature (clé debug). On passe de l'un à l'autre avec `adb install -r`, et les données sont conservées.
@@ -45,6 +45,7 @@ Fonctionnement d'ensemble :
 - **La synchro** (`SyncWorker` toutes les 6 h, ou l'écran de config) ne télécharge que l'**index** : la liste WebDAV et les métadonnées EXIF. Elle remplit ensuite le cache de secours jusqu'à 20 photos.
 - **L'économiseur** télécharge chaque image **à la volée** (aperçu réduit par Nextcloud) avec **1 photo d'avance**.
 - **Le cache de secours** (LRU, 50 Mo par défaut) garde les dernières photos et prend le relais hors connexion.
+- **Les vidéos seules** (`.mp4`/`.mov` rattachés à aucune photo) sont lues **en streaming**, muettes, jamais téléchargées ni mises en cache (voir la section « Vidéos seules »).
 
 Les objets partagés passent par **`AppContainer`** (`context.container`) : un seul `SettingsManager` et un seul `PhotoRepository` par processus. Ne jamais instancier ces classes ailleurs. Les classes de `storage/` et de `photos/` reçoivent des `File` et des dépendances (pas de `Context`), ce qui les rend testables sur la JVM.
 
@@ -53,32 +54,35 @@ Les objets partagés passent par **`AppContainer`** (`context.container`) : un s
 | `NextcloudDreamApp.kt` | Porte `container`. Timber : `DebugTree` en debug, `ReleaseTree` (INFO et plus, tag `NextcloudDream`) en release. `ImageLoaderFactory` Coil sans cache mémoire ni disque. Planifie `SyncWorker` |
 | `AppContainer.kt` | `settings`, `repository` (lazy) ; extension `Context.container` |
 | `MainActivity.kt` | Écran de configuration, navigable au D-pad (viewBinding). Sert aussi de `settingsActivity` du dream. **Les flèches haut/bas sont rendues au focus** par `enableDpadNavigation()` : un `EditText` les consomme sinon (déplacement du curseur) et le focus reste bloqué sur un champ. Le premier champ prend le focus au démarrage ; `windowSoftInputMode="stateAlwaysHidden"` empêche le clavier de s'ouvrir tout seul |
-| `dream/NextcloudDreamService.kt` | Cycle de vie, UI (messages, horloge, overlay) et boucle d'affichage avec 1 photo d'avance. Boucle protégée par try/catch (pause de 10 s). Photo illisible → `repository.evict` + `slides.remove` |
-| `dream/SlideSource.kt` | Choix de la photo suivante, indépendant d'Android (`PhotoSource` et horloge injectées). Playlist de **clés**. `FetchResult` : Ready ; Unavailable → photo suivante (10 au plus) ; Offline → `offlineUntil` 5 min, puis cache. Hors ligne, **jusqu'à 2 cycles** sont parcourus pour trouver une photo en cache (1 cycle ne suffit pas : bug trouvé par les tests). Index relu au plus une fois par minute s'il manque des métadonnées |
+| `dream/NextcloudDreamService.kt` | Cycle de vie, UI (messages, horloge, overlay) et boucle d'affichage avec 1 photo d'avance. Boucle protégée par try/catch (pause de 10 s). `when (slide)` : `PhotoSlide` → photo puis `delay(intervalMs)` ; `VideoSlide` → `playVideo` sans `delay` (la vidéo a occupé l'écran), échec → `slides.remove`. Photo illisible → `repository.evict` + `slides.remove` |
+| `dream/SlideSource.kt` | Choix de la photo suivante, indépendant d'Android (`PhotoSource` et horloge injectées). `Slide` est scellée : `PhotoSlide` (fichier, clip) ou `VideoSlide` (flux). Playlist de **clés**. `FetchResult` : Ready ; Stream → `VideoSlide` ; Unavailable → photo suivante (10 au plus) ; Offline → `offlineUntil` 5 min, puis cache. Hors ligne, **jusqu'à 2 cycles** sont parcourus pour trouver une photo en cache (1 cycle ne suffit pas : bug trouvé par les tests). Index relu au plus une fois par minute s'il manque des métadonnées |
 | `photos/PhotoSource.kt` | Interface implémentée par `PhotoRepository`, pour tester `SlideSource` avec une fausse source. `fetchMotion` n'y est **pas** : la fausse source des tests reste inchangée |
 | `photos/MotionRef.kt` | Vidéo d'une photo animée : `Sidecar` (iPhone, fichier à côté), `Trailer` (Pixel, collée au JPEG), `None`. Dans l'index, **null = pas encore examinée**, `None` = examinée sans vidéo |
 | `remote/MotionPhoto.kt` | Analyse du XMP d'un JPEG : items du `Container:Directory` **dans l'ordre** → position et longueur de la vidéo. Gère aussi l'ancien `GCamera:MicroVideoOffset`. Indépendant d'Android, testé sur la JVM |
-| `ui/MotionLayer.kt` | `TextureView` + `MediaPlayer` muet : joue le clip une fois, calé sur le rectangle de la photo. Aucune dépendance ajoutée (ExoPlayer doublerait l'APK) |
+| `ui/MotionLayer.kt` | `TextureView` + `MediaPlayer` muet. `playOnce` : clip de photo animée (fichier local), calé sur la photo. Vidéos seules : `openStream` (prepareAsync, 20 s max), `startVideo` (1re image, 10 s max), `awaitVideoEnd(capMs, minMs)` (fin, plafond, blocage 15 s, boucle si plus courte qu'une photo), `releaseVideo` (sur IO, attendu), `grabFrame`. Aucune dépendance ajoutée (ExoPlayer doublerait l'APK) |
+| `photos/VideoStream.kt` | URL + en-têtes d'une vidéo à lire. **Pas une data class** : `toString()` n'expose jamais l'en-tête Authorization |
+| `photos/MediaCount.kt` | Résultat de `syncNow()` : photos et vidéos seules (messages de l'écran de configuration) |
+| `remote/Mp4Metadata.kt` | Date (`mvhd`, ou `com.apple.quicktime.creationdate`) et position (`udta/©xyz`, ou `com.apple.quicktime.location.ISO6709`) d'une vidéo, par lectures Range. Trouve le `moov` en fin de fichier en sautant de boîte en boîte. Indépendant d'Android, testé sur des boîtes fabriquées |
 | `dream/PhotoPlaylist.kt` | Générique `PhotoPlaylist<T>`. Mélange par cycles. Les photos vues récemment (au moins 1) passent en fin du cycle suivant |
-| `ui/SlideshowView.kt` | Deux `Slide` (fond flou + photo), fondu de 1,5 s avec `withLayer()`. Règle de cadrage dans `image/Framing` |
+| `ui/SlideshowView.kt` | Deux `Slide` (fond flou + photo), fondu de 1,5 s avec `withLayer()`. Règle de cadrage dans `image/Framing`. `playVideo` : ouvre le flux pendant que l'élément courant reste affiché, puis fondu vers la vidéo (portrait : fond flou tiré de sa 1re image). `holdingVideoFrame` : la dernière image d'une vidéo reste figée jusqu'à l'élément suivant, qui la fond en sortie |
 | `ui/BlurredBackground.kt` | Flou maison sur 48 px (`RenderEffect` n'existe qu'à partir de l'API 31) |
-| `photos/PhotoRepository.kt` | `syncNow()` : (1) index sauvé tout de suite, (2) préchargement du cache de secours (borné par `maxCacheMb` / 1 Mo), (3) EXIF, index sauvé toutes les 30 s. `fetchForDisplay()` renvoie un `FetchResult` ; `evict()`. Aperçu serveur, repli sur l'original seulement si `HttpStatusException.isFileSpecific` |
+| `photos/PhotoRepository.kt` | `syncNow(): Result<MediaCount>` : (0) les vidéos seules entrent dans l'index (`isVideo`, `motion = None`) mais jamais dans le préchargement, (1) index sauvé tout de suite, (2) préchargement du cache de secours (borné par `maxCacheMb` / 1 Mo), (3) EXIF, index sauvé toutes les 30 s. `fetchForDisplay()` renvoie un `FetchResult` (vidéo : HEAD seulement, puis `Stream`) ; `evict()`. `getIndex()` est le **seul** point qui retire les vidéos quand `playVideos` est décoché. Aperçu serveur, repli sur l'original seulement si `HttpStatusException.isFileSpecific` |
 | `photos/IndexedPhoto.kt`, `PhotoMetadata.kt`, `FetchResult.kt` | Modèles. `PhotoMetadata` : JSON et `formattedDate()` |
-| `remote/NextcloudWebDavClient.kt` | PROPFIND (`oc:fileid`, `nc:metadata-files-live-photo`), `downloadPreview`, `readHead` (Range), `downloadRange`, `download`. `listPhotos` collecte aussi les `.mov`/`.mp4` et les rattache à leur photo. Basic Auth en UTF-8. `HttpStatusException(code)` avec `isFileSpecific` et `isPermanent` |
+| `remote/NextcloudWebDavClient.kt` | PROPFIND (`oc:fileid`, `nc:metadata-files-live-photo`), `downloadPreview`, `readHead` (Range), `downloadRange`, `readRange`, `probe` (HEAD), `streamHeaders()`, `download`. `listPhotos` collecte aussi les `.mov`/`.mp4` ; `pairMedia` (companion, testé) les rattache à leur photo ou en fait des vidéos seules. Basic Auth en UTF-8. `HttpStatusException(code)` avec `isFileSpecific` et `isPermanent` |
 | `remote/MultistatusParser.kt` | Lecture de la réponse PROPFIND (`XmlPullParser` injecté, testé avec kxml2) |
 | `remote/ExifReader.kt` | Date et GPS EXIF (début du JPEG, ou fichier complet) |
 | `remote/PlaceResolver.kt` | `Geocoder` Android, avec cache par zone d'environ 1 km |
 | `storage/PhotoCacheManager.kt` | `directory/<key><suffixe>`, avec `key = sha256(url\|etag)[:32]`. Le suffixe est un paramètre : `.jpg` pour les photos, `.mp4` pour les clips (deux instances, deux dossiers). Fichiers temporaires **uniques** (`createTempFile`), fsync puis rename. LRU via `touch`/`trim`. `retainOnly` épargne les `.part` de moins d'une heure |
 | `storage/PhotoIndexStore.kt` | `AtomicFile` sur `photo_index.json` |
 | `image/Framing.kt`, `image/ImageResizer.kt` | Règle de cadrage partagée ; réduction sur l'appareil avec contournement Android 9 « invalid scale » |
-| `settings/SettingsManager.kt` | `SharedPreferences` classiques (`nextcloud_dream_prefs`). `playLivePhotos` (activé par défaut) commande l'animation. Seul le mot de passe est chiffré (`app_password_encrypted`), via `KeystoreCipher`, puis gardé déchiffré en mémoire |
+| `settings/SettingsManager.kt` | `SharedPreferences` classiques (`nextcloud_dream_prefs`). `playLivePhotos` (activé par défaut) commande l'animation. `playVideos` (activé) et `maxVideoSeconds` (60 s, de 10 à 600) les vidéos seules. Seul le mot de passe est chiffré (`app_password_encrypted`), via `KeystoreCipher`, puis gardé déchiffré en mémoire |
 | `settings/KeystoreCipher.kt` | AES-256-GCM, clé `nextcloud_dream_app_password` dans l'Android Keystore. Format : Base64(IV de 12 octets + texte chiffré). `decrypt` renvoie null si la clé est perdue : seul le mot de passe est alors à ressaisir |
 | `update/ReleaseParser.kt` | Lecture de l'API GitHub `/releases/latest` : tag → `versionCode` (**même formule que `parseAppVersion` dans `build.gradle.kts`**, les deux doivent rester d'accord) et URL de l'APK. Indépendant d'Android, testé sur la JVM. Refuse un tag hors format, une release sans APK, et une URL non HTTPS |
 | `update/ReleaseChecker.kt` | Requête GitHub et téléchargement de l'APK (OkHttp). Bloquant, à appeler depuis `Dispatchers.IO` |
 | `update/ApkInstaller.kt` | Remise de l'APK au `PackageInstaller` du système, autorisation « sources inconnues » (`canRequestPackageInstalls`), seuil d'espace disque. `InstallResultReceiver` ouvre l'écran de confirmation que le système renvoie (`STATUS_PENDING_USER_ACTION`) |
 | `worker/SyncWorker.kt` | WorkManager, contrainte réseau. `failure()` sur une erreur permanente, sinon `retry()` (3 au plus) |
 
-**Tests** (`app/src/test`, `./gradlew testDebugUnitTest`, 53 tests, aussi exécutés en CI) : `PhotoPlaylist`, `SlideSource` (en ligne, indisponible, hors ligne avec horloge simulée, cache sans index, métadonnées), `PhotoCacheManager` (dont une **valeur de référence de `keyFor`**, qui ne doit jamais changer), `PhotoIndexStore`, `PhotoMetadata`, `MultistatusParser`, `MotionPhoto`, `ReleaseParser`. `testOptions.unitTests.isReturnDefaultValues = true`. org.json et kxml2 sont ajoutés en `testImplementation`.
+**Tests** (`app/src/test`, `./gradlew testDebugUnitTest`, 84 tests, aussi exécutés en CI) : `PhotoPlaylist`, `SlideSource` (en ligne, indisponible, hors ligne avec horloge simulée, cache sans index, métadonnées, vidéos jamais proposées hors ligne), `PhotoCacheManager` (dont une **valeur de référence de `keyFor`**, qui ne doit jamais changer), `PhotoIndexStore` (dont les vidéos), `PhotoMetadata`, `MultistatusParser`, `MediaPairing` (rattachement des vidéos), `Mp4Metadata`, `MotionPhoto`, `ReleaseParser`, `VideoStream`. `testOptions.unitTests.isReturnDefaultValues = true`. org.json et kxml2 sont ajoutés en `testImplementation`.
 
 **Couverture** : `./gradlew jacocoTestReport` (tâche déclarée dans `app/build.gradle.kts`, dépend de `testDebugUnitTest`). Rapports dans `app/build/reports/jacoco/jacocoTestReport/` : HTML pour la lecture, XML à côté. Mesure à la demande, la CI ne s'en sert pas. `enableUnitTestCoverage = true` sur le build type `debug` ; le code généré (R, BuildConfig, viewBinding) est exclu. État au 2026-10-07 : **22,6 % des lignes** (instructions 22,8 %). Par paquet : `storage` 88 %, `dream` 36 %, `remote` 22 %, `photos` 21 %, et 0 % pour `ui`, `settings`, `worker`, `image` et `NextcloudDreamApp`, qui dépendent d'Android et ne sont pas atteignables depuis la JVM.
 
@@ -161,8 +165,19 @@ elle-même** : le passage photo → vidéo est invisible. Retour à la photo par
   continue sur le cache avec un simple avertissement.
 - **Les clips ne vont pas dans le cache de secours.** Dossier `files/motion` à part, 20 Mo,
   son propre LRU : à 3,5 Mo (Pixel) ou 6 Mo (iPhone) pièce, ils videraient de ses photos le
-  cache de 50 Mo qui fait tenir le diaporama hors connexion. Un clip de plus de 20 Mo est
-  refusé — ce n'est pas une photo animée mais une vidéo.
+  cache de 50 Mo qui fait tenir le diaporama hors connexion. Un `.mov` de plus de 20 Mo
+  n'est pas rattaché par son nom : trop gros pour être un clip, il est joué comme vidéo seule.
+- **Les vidéos seules ne touchent jamais le disque** : ni cache, ni préchargement, ni
+  téléchargement. Seuls quelques Ko de boîtes MP4 sont lus en mémoire à la synchro.
+- **Le mot de passe ne sort que dans l'en-tête Authorization** : jamais dans une URL
+  (MediaPlayer journalise les URL), jamais dans un log (`VideoStream.toString()`).
+  Vérifié : 0 occurrence de « authorization » ou du mot de passe dans logcat.
+- **Délais : `withTimeoutOrNull`, jamais `withTimeout`** dans le diaporama. Le
+  dépassement de `withTimeout` est une `TimeoutCancellationException`, donc une
+  `CancellationException` : relancée comme une vraie annulation, elle **arrêtait tout le
+  diaporama** (écran noir). Bug trouvé au test, serveur coupé pendant une vidéo.
+- **Le lecteur d'une vidéo est libéré (sur IO, attendu) avant que le suivant ne se
+  connecte à la même Surface**, et `prepare()` n'est jamais bloquant (`prepareAsync`).
 - **Un clip ne déborde jamais sur la photo suivante** : son job est annulé avant chaque
   nouvelle photo.
 
@@ -170,6 +185,50 @@ elle-même** : le passage photo → vidéo est invisible. Retour à la photo par
 
 - Aperçus serveur : 200 Ko à 2,2 Mo, environ 1 Mo en moyenne. Le cache de secours de 50 Mo tient donc environ 50 photos.
 - Lecture EXIF par Range sur 18 photos : environ 6 s. 15 sur 18 ont un GPS, et les lieux sont correctement résolus.
+
+### Vidéos seules
+
+Lues en streaming par `MediaPlayer.setDataSource(context, uri, headers)`, muettes, sans
+focus audio. Décisions prises avec l'utilisateur : streaming (la Mi Box n'a pas la place),
+lecture en entier avec un plafond réglable (60 s), date et lieu comme pour les photos.
+
+- **Rattachement** (`pairMedia`) : une vidéo est « seule » si aucune photo ne la désigne
+  (fileid ou nom de base) **et** si son propre `livePhotoFileId` ne désigne pas une photo
+  du listing (il suffit qu'un côté de la paire le dise).
+- **Affichage** : HEAD au moment de choisir l'élément (`probe` → `Stream`, `Unavailable`
+  ou `Offline`, comme une photo), ouverture du flux pendant que l'élément courant reste à
+  l'écran, puis fondu. Paysage recadré, portrait en entier sur le flou de sa 1re image.
+- **Durée** : jusqu'à la fin ; coupée en fondu au plafond ; **une vidéo plus courte que la
+  durée d'une photo tourne en boucle** (`isLooping`) jusqu'à l'atteindre, puis s'arrête à
+  la fin du tour en cours (jamais au milieu). Le plafond reste prioritaire.
+- **Échecs** : flux trop long à ouvrir (20 s) ou à démarrer (10 s), position immobile
+  15 s, erreur MediaPlayer → vidéo écartée de ce cycle, l'élément courant reste affiché.
+- **Hors connexion** : jamais en cache, donc sautées ; `cachedSlide` ignore même un
+  fichier mis en cache sous la clé d'une vidéo par une version antérieure.
+
+**Vérifié le 2026-10-12** sur l'émulateur Android TV API 31 (Mac), contre un **faux
+serveur Nextcloud** local (script Python jetable, hors dépôt : PROPFIND, GET/HEAD avec
+Range, aperçus, Basic auth, journal de chaque requête), joint par `adb reverse tcp:8080` :
+
+- Synchro : 4 photos (dont 1 Live Photo correctement rattachée) et 7 vidéos seules ;
+  date et lieu lus pour le `.mp4` à clés iPhone (Paris) et le `.mov` à `©xyz` (Kyoto),
+  `moov` en fin de fichier compris, sans jamais télécharger une vidéo.
+- **Toutes les requêtes du lecteur vidéo (`stagefright`) portent l'authentification** ;
+  pour un `moov` en fin de fichier, il fait lui-même une requête Range vers la fin.
+- H.264, HEVC `.mov`, portrait (rotation), boucle d'une vidéo de 3 s (3 tours pour 8 s),
+  plafond (25 s et 3 min coupées à 20 s), fichier tronqué écarté, deux vidéos d'affilée.
+- Serveur coupé pendant une vidéo → bascule sur le cache ; serveur qui ne répond jamais
+  au lecteur → abandon en 20 s, le diaporama continue ; touche pendant une ouverture
+  bloquée → économiseur fermé en 0,6 s, pas d'ANR. Réglage décoché → 0 vidéo, 0 requête.
+- APK release : +26 Ko.
+
+`app/src/debug/` autorise le HTTP en clair vers `localhost` / `127.0.0.1`, **build debug
+seulement** (pour ce faux serveur). Le clavier virtuel de l'émulateur capte les touches
+pendant la saisie par adb : le désactiver le temps du test (`adb shell ime disable …`).
+
+**Non vérifié** : un vrai serveur Nextcloud (redirections éventuelles, en-têtes conservés
+par `MediaHTTPConnection` sur Android 9), de vraies vidéos d'iPhone (HEVC/Dolby Vision) et
+la Mi Box (débit Wi-Fi, décodage matériel).
 
 ## CI / releases
 

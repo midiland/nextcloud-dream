@@ -1,5 +1,6 @@
 package fr.midiland.nextclouddream.dream
 
+import fr.midiland.nextclouddream.photos.VideoStream
 import fr.midiland.nextclouddream.photos.FetchResult
 import fr.midiland.nextclouddream.photos.IndexedPhoto
 import fr.midiland.nextclouddream.photos.PhotoMetadata
@@ -147,5 +148,64 @@ class SlideSourceTest {
         fake.index = listOf(photo("a"), photo("b"))
         val nextCycle = List(2) { slides.next()!!.key }
         assertEquals(setOf("a", "b"), nextCycle.toSet())
+    }
+
+    // --- Vidéos seules ---
+
+    private fun video(key: String) =
+        IndexedPhoto(key, "https://x/$key.mp4", "$key.mp4", fileId = 9L,
+            metadata = PhotoMetadata(dateTaken = "2021:07:14 12:00:00", place = "Paris"), isVideo = true)
+
+    private fun stream(key: String) = FetchResult.Stream(VideoStream("https://x/$key.mp4", emptyMap()))
+
+    @Test
+    fun `video en ligne fournie en streaming avec sa date et son lieu`() = runBlocking {
+        val fake = FakeSource(listOf(video("v")))
+        fake.behaviour["v"] = stream("v")
+        val slide = sourceWith(fake).next()
+
+        assertTrue(slide is VideoSlide)
+        assertEquals("https://x/v.mp4", (slide as VideoSlide).stream.url)
+        assertEquals("Paris", slide.metadata?.place)
+    }
+
+    @Test
+    fun `hors ligne, une video n'est jamais proposee`() = runBlocking {
+        val fake = FakeSource(listOf(photo("b"), video("v")))
+        fake.behaviour.putAll(mapOf("b" to FetchResult.Offline, "v" to FetchResult.Offline))
+        fake.cached += "b"
+        val slides = sourceWith(fake)
+
+        repeat(20) {
+            val slide = slides.next()
+            assertTrue(slide is PhotoSlide)
+            assertEquals("b", slide!!.key)
+        }
+    }
+
+    @Test
+    fun `hors ligne, un ancien fichier en cache sous la cle d'une video est ignore`() = runBlocking {
+        val fake = FakeSource(listOf(photo("b"), video("v")))
+        fake.behaviour.putAll(mapOf("b" to FetchResult.Offline, "v" to FetchResult.Offline))
+        fake.cached += listOf("b", "v")
+        val slides = sourceWith(fake)
+        repeat(20) { assertEquals("b", slides.next()!!.key) }
+    }
+
+    @Test
+    fun `video indisponible sautee sans passer hors ligne`() = runBlocking {
+        val fake = FakeSource(listOf(photo("a"), video("v")))
+        fake.behaviour["v"] = FetchResult.Unavailable
+        val slides = sourceWith(fake)
+
+        repeat(4) { assertEquals("a", slides.next()!!.key) }
+        assertFalse(slides.isOffline)
+    }
+
+    @Test
+    fun `seulement des videos, hors ligne, rien a afficher`() = runBlocking {
+        val fake = FakeSource(listOf(video("v"), video("w")))
+        fake.behaviour.putAll(mapOf("v" to FetchResult.Offline, "w" to FetchResult.Offline))
+        assertNull(sourceWith(fake).next())
     }
 }

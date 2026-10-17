@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Build debug uniquement : HTTP non chiffré autorisé vers la machine de développement
+     (faux serveur Nextcloud de test, joint par `adb reverse`). La release n'a pas ce
+     fichier et refuse tout trafic en clair. -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

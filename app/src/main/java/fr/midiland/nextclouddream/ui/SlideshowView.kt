@@ -15,6 +15,8 @@ import coil.request.SuccessResult
 import coil.size.Precision
 import coil.size.Scale
 import fr.midiland.nextclouddream.image.Framing
+import fr.midiland.nextclouddream.photos.VideoStream
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -51,6 +53,12 @@ class SlideshowView @JvmOverloads constructor(
 
     /** Cadrage de la photo affichée : la vidéo doit suivre exactement la même règle. */
     private var showingWholeImage = false
+
+    /**
+     * Vrai quand la dernière image d'une vidéo seule reste affichée (lecteur libéré,
+     * image figée sur la surface) : l'élément suivant doit la faire disparaître en fondu.
+     */
+    private var holdingVideoFrame = false
 
     init {
         addView(back)
@@ -113,7 +121,9 @@ class SlideshowView @JvmOverloads constructor(
         showingWholeImage = showWhole
 
         onFadeStart()
-        crossfade(incoming, outgoing)
+        // Après une vidéo seule, son image figée (au-dessus de tout) s'efface en même temps
+        crossfade(incoming, outgoing, motionAlpha = if (holdingVideoFrame) 0f else null)
+        holdingVideoFrame = false
 
         // L'ancienne photo est invisible : on libère ses bitmaps
         outgoing.clear()
@@ -132,8 +142,77 @@ class SlideshowView @JvmOverloads constructor(
     suspend fun playMotion(file: File, startUs: Long?): Boolean =
         motion.playOnce(file, showingWholeImage, startUs)
 
+    /**
+     * Joue une vidéo seule en streaming, sans le son, jusqu'à sa fin ou au plafond
+     * [capMs]. Plus courte que [minMs] (durée d'une photo), elle tourne en boucle. Le flux est ouvert pendant que l'élément courant reste à l'écran, puis
+     * un fondu enchaîné fait apparaître la vidéo ; sa dernière image reste affichée
+     * jusqu'à l'élément suivant. [onFadeStart] synchronise l'overlay date/lieu.
+     *
+     * @return false si la vidéo n'a pas pu démarrer : rien n'a changé à l'écran.
+     */
+    suspend fun playVideo(stream: VideoStream, capMs: Long, minMs: Long, onFadeStart: () -> Unit = {}): Boolean {
+        val video = try {
+            motion.openStream(stream)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w("Vidéo impossible à ouvrir : %s (%s)", stream, e.message)
+            return false
+        }
+        try {
+            // Deux vidéos d'affilée : une seule surface. L'image figée de la précédente ne
+            // s'efface qu'une fois le nouveau flux ouvert : si celui-ci échoue, elle reste
+            // à l'écran au lieu de laisser place au noir
+            if (holdingVideoFrame) {
+                fadeMotion(0f)
+                holdingVideoFrame = false
+            }
+            val showWhole = Framing.shouldShowWholeImage(video.width, video.height)
+            try {
+                motion.startVideo(video, showWhole)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w("Vidéo impossible à démarrer : %s (%s)", stream, e.message)
+                return false
+            }
+
+            // Diapositive entrante sans photo : fond noir, ou en portrait le flou de la 1re image
+            val incoming = back
+            val outgoing = front
+            incoming.clear()
+            val blurred = if (showWhole) {
+                motion.grabFrame(video)?.let { frame ->
+                    withContext(Dispatchers.Default) { BlurredBackground.create(frame) }.also { frame.recycle() }
+                }
+            } else {
+                null
+            }
+            incoming.background.setImageBitmap(blurred)
+            incoming.background.isVisible = blurred != null
+            incoming.alpha = 0f
+            incoming.bringToFront()
+            motion.bringToFront()
+            showingWholeImage = showWhole
+
+            onFadeStart()
+            crossfade(incoming, outgoing, motionAlpha = 1f)
+            outgoing.clear()
+            front = incoming
+            back = outgoing
+            holdingVideoFrame = true
+
+            val end = motion.awaitVideoEnd(video, capMs, minMs)
+            Timber.d("Vidéo terminée (%s) : %s", end, stream)
+            return true
+        } finally {
+            motion.releaseVideo(video)
+        }
+    }
+
     /** Libère les images (appelé quand l'économiseur se ferme). */
     fun clear() {
+        holdingVideoFrame = false
         front.animate().cancel()
         back.animate().cancel()
         motion.animate().cancel()
@@ -150,11 +229,16 @@ class SlideshowView @JvmOverloads constructor(
         return if (options.outWidth > 0 && options.outHeight > 0) options.outWidth to options.outHeight else null
     }
 
-    private suspend fun crossfade(incoming: Slide, outgoing: Slide) =
+    /**
+     * Fondu enchaîné entre deux diapositives. [motionAlpha] anime aussi la couche vidéo
+     * (1 : une vidéo seule apparaît, 0 : l'image figée d'une vidéo disparaît).
+     */
+    private suspend fun crossfade(incoming: Slide, outgoing: Slide, motionAlpha: Float? = null) =
         suspendCancellableCoroutine { cont ->
             // withLayer : chaque diapositive est rendue une fois dans un calque GPU puis
             // simplement mélangée, au lieu d'être recomposée à chaque image (GPU modeste de la Mi Box)
             outgoing.animate().alpha(0f).setDuration(fadeDurationMs).withLayer().start()
+            motionAlpha?.let { motion.animate().alpha(it).setDuration(fadeDurationMs).start() }
             incoming.animate()
                 .alpha(1f)
                 .setDuration(fadeDurationMs)
@@ -165,8 +249,19 @@ class SlideshowView @JvmOverloads constructor(
             cont.invokeOnCancellation {
                 incoming.animate().cancel()
                 outgoing.animate().cancel()
+                motion.animate().cancel()
             }
         }
+
+    /** Fondu de la seule couche vidéo (image figée d'une vidéo qui s'efface). */
+    private suspend fun fadeMotion(target: Float) = suspendCancellableCoroutine { cont ->
+        motion.animate()
+            .alpha(target)
+            .setDuration(fadeDurationMs)
+            .withEndAction { if (cont.isActive) cont.resume(Unit) }
+            .start()
+        cont.invokeOnCancellation { motion.animate().cancel() }
+    }
 
     /** Une diapositive : fond flou (optionnel) + photo par-dessus. */
     private class Slide(context: Context) : FrameLayout(context) {

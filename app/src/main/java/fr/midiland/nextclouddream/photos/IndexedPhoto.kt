@@ -16,4 +16,9 @@ data class IndexedPhoto(
     val size: Long = 0L,
     /** Vidéo d'une photo animée. null = pas encore examinée (voir [MotionRef]). */
     val motion: MotionRef? = null,
+    /**
+     * Vidéo seule (rattachée à aucune photo) : lue en streaming, muette, jamais
+     * téléchargée ni mise en cache. [metadata] porte alors sa date et son lieu.
+     */
+    val isVideo: Boolean = false,
 )

@@ -40,6 +40,22 @@ object BlurredBackground {
             null
         }
 
+    /**
+     * Fond flou à partir d'une image déjà en mémoire (ex. la première image d'une
+     * vidéo en portrait). [source] n'est pas modifiée.
+     */
+    fun create(source: Bitmap): Bitmap? =
+        try {
+            val height = (WIDTH * source.height / source.width).coerceAtLeast(1)
+            boxBlur(Bitmap.createScaledBitmap(source, WIDTH, height, true).let {
+                // createScaledBitmap peut rendre la source elle-même : ne jamais la flouter sur place
+                if (it === source) source.copy(Bitmap.Config.ARGB_8888, true) else it
+            })
+        } catch (e: Exception) {
+            Timber.w(e, "Fond flou impossible (image en mémoire)")
+            null
+        }
+
     /** Flou par moyenne glissante, horizontal puis vertical, répété (≈ flou gaussien). */
     private fun boxBlur(source: Bitmap): Bitmap {
         val bitmap = if (source.isMutable) source else source.copy(Bitmap.Config.ARGB_8888, true).also { source.recycle() }

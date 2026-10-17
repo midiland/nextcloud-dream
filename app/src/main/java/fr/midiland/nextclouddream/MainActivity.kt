@@ -20,6 +20,7 @@ import androidx.lifecycle.lifecycleScope
 import fr.midiland.nextclouddream.settings.SettingsManager
 import fr.midiland.nextclouddream.databinding.ActivityMainBinding
 import fr.midiland.nextclouddream.remote.HttpStatusException
+import fr.midiland.nextclouddream.photos.MediaCount
 import fr.midiland.nextclouddream.remote.NextcloudWebDavClient
 import fr.midiland.nextclouddream.update.ApkInstaller
 import fr.midiland.nextclouddream.update.AppRelease
@@ -205,8 +206,8 @@ class MainActivity : AppCompatActivity() {
     private fun enableDpadNavigation() = with(binding) {
         val parcours = listOf<View>(
             serverUrl, username, appPassword, showPassword, folderPath,
-            slideInterval, syncInterval, maxCache, showClock, showPhotoInfo, playLivePhotos,
-            saveButton, testButton, screensaverSettingsButton, updateButton,
+            slideInterval, maxVideo, syncInterval, maxCache, showClock, showPhotoInfo, playLivePhotos,
+            playVideos, saveButton, testButton, screensaverSettingsButton, updateButton,
         )
         parcours.forEach { vue -> vue.moveFocusAlong(parcours) }
         serverUrl.requestFocus()
@@ -240,12 +241,13 @@ class MainActivity : AppCompatActivity() {
 
     /** Valeurs saisies, pour détecter une modification non enregistrée. */
     private fun fieldValues(): List<String> = with(binding) {
-        listOf(serverUrl, username, appPassword, folderPath, slideInterval, syncInterval, maxCache)
+        listOf(serverUrl, username, appPassword, folderPath, slideInterval, maxVideo, syncInterval, maxCache)
             .map { it.text.toString() } +
             listOf(
                 showClock.isChecked.toString(),
                 showPhotoInfo.isChecked.toString(),
                 playLivePhotos.isChecked.toString(),
+                playVideos.isChecked.toString(),
             )
     }
 
@@ -277,11 +279,13 @@ class MainActivity : AppCompatActivity() {
         appPassword.setText(settings.appPassword)
         folderPath.setText(settings.folderPath)
         slideInterval.setText(settings.slideIntervalSeconds.toString())
+        maxVideo.setText(settings.maxVideoSeconds.toString())
         syncInterval.setText(settings.syncIntervalHours.toString())
         maxCache.setText(settings.maxCacheMb.toString())
         showClock.isChecked = settings.showClock
         showPhotoInfo.isChecked = settings.showPhotoInfo
         playLivePhotos.isChecked = settings.playLivePhotos
+        playVideos.isChecked = settings.playVideos
     }
 
     private fun saveAndSync() {
@@ -291,11 +295,13 @@ class MainActivity : AppCompatActivity() {
             settings.appPassword = appPassword.text.toString()
             settings.folderPath = folderPath.text.toString()
             slideInterval.text.toString().toIntOrNull()?.let { settings.slideIntervalSeconds = it }
+            maxVideo.text.toString().toIntOrNull()?.let { settings.maxVideoSeconds = it }
             syncInterval.text.toString().toIntOrNull()?.let { settings.syncIntervalHours = it }
             maxCache.text.toString().toIntOrNull()?.let { settings.maxCacheMb = it }
             settings.showClock = showClock.isChecked
             settings.showPhotoInfo = showPhotoInfo.isChecked
             settings.playLivePhotos = playLivePhotos.isChecked
+            settings.playVideos = playVideos.isChecked
         }
         // Réaffiche les valeurs normalisées (bornes, slash final retiré…)
         loadSettings()
@@ -311,7 +317,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val result = container.repository.syncNow()
             binding.status.text = result.fold(
-                onSuccess = { count -> resources.getQuantityString(R.plurals.config_sync_done, count, count) },
+                onSuccess = { count -> describeCount(count, R.plurals.config_sync_done, R.string.config_sync_done_mixed) },
                 onFailure = ::describeError,
             )
         }
@@ -327,14 +333,32 @@ class MainActivity : AppCompatActivity() {
         binding.status.setText(R.string.config_testing)
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { NextcloudWebDavClient(url, user, password).listPhotos(folder).size }
+                runCatching {
+                    val media = NextcloudWebDavClient(url, user, password).listPhotos(folder)
+                    MediaCount(photos = media.count { !it.isVideo }, videos = media.count { it.isVideo })
+                }
             }
             binding.status.text = result.fold(
-                onSuccess = { count -> resources.getQuantityString(R.plurals.config_test_ok, count, count) },
+                onSuccess = { count -> describeCount(count, R.plurals.config_test_ok, R.string.config_test_ok_mixed) },
                 onFailure = ::describeError,
             )
         }
     }
+
+    /**
+     * « 18 photos trouvées », ou « 18 photos et 2 vidéos trouvées » s'il y a des vidéos :
+     * le message habituel ne change pas pour un dossier sans vidéo.
+     */
+    private fun describeCount(count: MediaCount, photosOnly: Int, mixed: Int): String =
+        if (count.videos == 0) {
+            resources.getQuantityString(photosOnly, count.photos, count.photos)
+        } else {
+            getString(
+                mixed,
+                resources.getQuantityString(R.plurals.count_photos, count.photos, count.photos),
+                resources.getQuantityString(R.plurals.count_videos, count.videos, count.videos),
+            )
+        }
 
     /** Message d'erreur compréhensible, dans la langue de l'appareil. */
     private fun describeError(error: Throwable): String = when (error) {

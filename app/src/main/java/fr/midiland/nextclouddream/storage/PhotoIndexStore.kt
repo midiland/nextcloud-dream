@@ -56,6 +56,8 @@ class PhotoIndexStore(indexFile: File) {
         photo.metadata?.let { put(KEY_METADATA, it.toJsonObject()) }
         if (photo.size > 0) put(KEY_SIZE, photo.size)
         photo.motion?.let { put(KEY_MOTION, it.toJsonObject()) }
+        // Écrit seulement pour les vidéos : l'index des photos ne grossit pas
+        if (photo.isVideo) put(KEY_VIDEO, true)
     }
 
     // Champ "motion" absent (index écrit par une version antérieure) → null, donc
@@ -68,6 +70,7 @@ class PhotoIndexStore(indexFile: File) {
         metadata = obj.optJSONObject(KEY_METADATA)?.let(PhotoMetadata::fromJsonObject),
         size = obj.optLong(KEY_SIZE),
         motion = obj.optJSONObject(KEY_MOTION)?.let(MotionRef::fromJsonObject),
+        isVideo = obj.optBoolean(KEY_VIDEO),
     )
 
     private companion object {
@@ -78,5 +81,6 @@ class PhotoIndexStore(indexFile: File) {
         const val KEY_METADATA = "metadata"
         const val KEY_SIZE = "size"
         const val KEY_MOTION = "motion"
+        const val KEY_VIDEO = "video"
     }
 }

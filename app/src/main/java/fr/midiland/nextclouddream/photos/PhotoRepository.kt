@@ -4,6 +4,7 @@ import fr.midiland.nextclouddream.image.ImageResizer
 import fr.midiland.nextclouddream.remote.ExifReader
 import fr.midiland.nextclouddream.remote.HttpStatusException
 import fr.midiland.nextclouddream.remote.MotionPhoto
+import fr.midiland.nextclouddream.remote.Mp4Metadata
 import fr.midiland.nextclouddream.remote.NextcloudWebDavClient
 import fr.midiland.nextclouddream.remote.PlaceResolver
 import fr.midiland.nextclouddream.settings.SettingsManager
@@ -39,8 +40,15 @@ class PhotoRepository(
     private val placeResolver: PlaceResolver,
 ) : PhotoSource {
 
-    /** Photos connues à la dernière synchro (disponible hors connexion). */
-    override suspend fun getIndex(): List<IndexedPhoto> = withContext(Dispatchers.IO) { indexStore.load() }
+    /**
+     * Photos (et vidéos seules) connues à la dernière synchro, disponible hors connexion.
+     * Les vidéos sont retirées ici si leur lecture est désactivée : c'est le seul point
+     * de filtrage, l'économiseur ne les voit donc jamais.
+     */
+    override suspend fun getIndex(): List<IndexedPhoto> = withContext(Dispatchers.IO) {
+        val index = indexStore.load()
+        if (settings.playVideos) index else index.filterNot { it.isVideo }
+    }
 
     /** Photos présentes dans le cache de secours. */
     override suspend fun getCachedPhotos(): List<File> = withContext(Dispatchers.IO) { cache.listPhotos() }
@@ -49,9 +57,9 @@ class PhotoRepository(
      * Met à jour l'index depuis Nextcloud, puis remplit le cache de secours s'il est
      * presque vide (pour pouvoir fonctionner hors connexion dès le départ).
      * Ne lève jamais d'exception.
-     * @return le nombre de photos dans le dossier.
+     * @return le nombre de photos et de vidéos seules dans le dossier.
      */
-    suspend fun syncNow(): Result<Int> = withContext(Dispatchers.IO) {
+    suspend fun syncNow(): Result<MediaCount> = withContext(Dispatchers.IO) {
         // Une seule synchro à la fois (économiseur + worker + écran de config)
         syncMutex.withLock {
             runCatching {
@@ -75,8 +83,13 @@ class PhotoRepository(
                         // La vidéo d'une Live Photo est connue dès le listing ; celle d'un
                         // Motion Photo est cherchée plus bas, avec l'EXIF. Un jumeau que le
                         // serveur ne signale plus doit disparaître de l'index.
-                        motion = remote.sidecar?.let { MotionRef.Sidecar(it.url.toString(), it.size) }
-                            ?: known?.motion?.takeUnless { it is MotionRef.Sidecar },
+                        motion = if (remote.isVideo) {
+                            MotionRef.None // une vidéo seule n'a pas de clip embarqué à chercher
+                        } else {
+                            remote.sidecar?.let { MotionRef.Sidecar(it.url.toString(), it.size) }
+                                ?: known?.motion?.takeUnless { it is MotionRef.Sidecar }
+                        },
+                        isVideo = remote.isVideo,
                     )
                 }
                 indexStore.save(index)
@@ -86,7 +99,8 @@ class PhotoRepository(
                 //    au hasard, dans la limite de ce que le cache peut contenir
                 val prewarmTarget = minOf(PREWARM_COUNT, (maxCacheBytes() / AVERAGE_PREVIEW_BYTES).toInt())
                 var prewarmed = 0
-                for (photo in index.shuffled()) {
+                // Jamais de vidéo : elles ne sont lues qu'en streaming, rien n'est stocké
+                for (photo in index.filterNot { it.isVideo }.shuffled()) {
                     if (cache.listPhotos().size >= prewarmTarget) break
                     ensureActive()
                     // Revérifié à chaque fois : l'économiseur a pu la télécharger entre-temps
@@ -102,6 +116,9 @@ class PhotoRepository(
                 val updated = index.toMutableList()
                 for (i in updated.indices) {
                     ensureActive()
+                    // Lecture des vidéos désactivée : aucune requête pour elles. Leurs
+                    // métadonnées seront lues à la synchro qui suivra la réactivation.
+                    if (updated[i].isVideo && !settings.playVideos) continue
                     val details = completeDetails(client, updated[i])
                     if (details.metadata != updated[i].metadata || details.motion != updated[i].motion) {
                         updated[i] = updated[i].copy(metadata = details.metadata, motion = details.motion)
@@ -118,11 +135,14 @@ class PhotoRepository(
                 // Les clips ne sont gardés que pour les photos qui en ont encore une
                 motionCache.retainOnly(index.filter { it.motion.hasVideo }.map { it.key }.toSet())
 
+                val count = MediaCount(photos = index.count { !it.isVideo }, videos = index.count { it.isVideo })
                 Timber.i(
-                    "Synchro : %d photo(s) dont %d animée(s), %d métadonnée(s) lue(s), %d préchargée(s), %d en cache",
-                    index.size, index.count { it.motion.hasVideo }, enriched, prewarmed, cache.listPhotos().size,
+                    "Synchro : %d photo(s) dont %d animée(s), %d vidéo(s) seule(s), %d métadonnée(s) lue(s), " +
+                        "%d préchargée(s), %d en cache",
+                    count.photos, index.count { it.motion.hasVideo }, count.videos, enriched, prewarmed,
+                    cache.listPhotos().size,
                 )
-                index.size
+                count
             }.onFailure { e ->
                 // Ne pas avaler une annulation de coroutine
                 if (e is CancellationException) throw e
@@ -137,6 +157,9 @@ class PhotoRepository(
      * (l'économiseur bascule sur le cache de secours).
      */
     override suspend fun fetchForDisplay(photo: IndexedPhoto): FetchResult = withContext(Dispatchers.IO) {
+        // Vidéo : jamais en cache ni téléchargée, seulement vérifiée avant le streaming
+        if (photo.isVideo) return@withContext probeVideo(photo)
+
         val cached = cache.fileFor(photo.key)
         if (cached.exists()) {
             cache.touch(cached)
@@ -152,6 +175,28 @@ class PhotoRepository(
             if (e.isFileSpecific) FetchResult.Unavailable else FetchResult.Offline
         } catch (e: Exception) {
             Timber.w("Téléchargement impossible : %s (%s)", photo.name, e.message)
+            FetchResult.Offline
+        }
+    }
+
+    /**
+     * Vérifie qu'une vidéo est joignable (requête HEAD), puis fournit de quoi la lire
+     * en streaming. Mêmes conclusions qu'une photo : fichier supprimé → on passe à la
+     * suite, serveur injoignable → bascule sur le cache de secours.
+     */
+    private fun probeVideo(photo: IndexedPhoto): FetchResult {
+        if (!settings.isConfigured) return FetchResult.Offline
+        return try {
+            val client = client()
+            client.probe(photo.url.toHttpUrl())
+            FetchResult.Stream(VideoStream(photo.url, client.streamHeaders()))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: HttpStatusException) {
+            Timber.w("Vidéo injoignable : %s (%s)", photo.name, e.message)
+            if (e.isFileSpecific) FetchResult.Unavailable else FetchResult.Offline
+        } catch (e: Exception) {
+            Timber.w("Vidéo injoignable : %s (%s)", photo.name, e.message)
             FetchResult.Offline
         }
     }
@@ -278,8 +323,8 @@ class PhotoRepository(
     }
 
     /**
-     * EXIF et vidéo embarquée d'une photo distante. JPEG : seulement le début du
-     * fichier, qui porte les deux. HEIC : l'EXIF peut être n'importe où, on télécharge
+     * EXIF et vidéo embarquée d'une photo distante. Vidéo seule : sa date et sa position
+     * (boîtes MP4). JPEG : seulement le début du fichier, qui porte les deux. HEIC : l'EXIF peut être n'importe où, on télécharge
      * tout (si l'espace le permet). PNG / WebP : pas d'EXIF en pratique, rien à lire.
      * @return null en cas d'erreur réseau (nouvel essai à la prochaine synchro).
      */
@@ -287,6 +332,17 @@ class PhotoRepository(
         try {
             val url = photo.url.toHttpUrl()
             when {
+                // Vidéo seule : date et lieu lus dans ses boîtes MP4, par petites lectures Range
+                photo.isVideo -> {
+                    val info = Mp4Metadata.read(
+                        fileSize = photo.size,
+                        readAt = { offset, length -> client.readRange(url, offset, length) },
+                    )
+                    PhotoDetails(
+                        PhotoMetadata(info?.dateTaken, info?.latitude, info?.longitude),
+                        MotionRef.None,
+                    )
+                }
                 NextcloudWebDavClient.isJpeg(photo.name) -> {
                     val head = client.readHead(url, EXIF_HEAD_BYTES)
                     PhotoDetails(ExifReader.read(photo.name, head), trailerOf(photo, head))

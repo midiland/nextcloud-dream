@@ -77,6 +77,15 @@
 
         <TextView
             style="@style/ConfigLabel"
+            android:labelFor="@+id/max_video"
+            android:text="@string/config_max_video" />
+        <EditText
+            android:id="@id/max_video"
+            style="@style/ConfigField"
+            android:inputType="number" />
+
+        <TextView
+            style="@style/ConfigLabel"
             android:labelFor="@+id/sync_interval"
             android:text="@string/config_sync_interval" />
         <EditText
@@ -109,6 +118,12 @@
             android:id="@+id/play_live_photos"
             style="@style/ConfigCheckBox"
             android:text="@string/config_play_live_photos" />
+
+        <!-- Lues en streaming : rien n'est stocké, mais chaque vidéo consomme du débit -->
+        <CheckBox
+            android:id="@+id/play_videos"
+            style="@style/ConfigCheckBox"
+            android:text="@string/config_play_videos" />
 
         <!-- Au-dessus des boutons : placé en dessous, le message de résultat restait
              sous le bord de l'écran au moment précis où l'on appuyait. -->

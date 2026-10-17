@@ -74,6 +74,20 @@ class SettingsManager(context: Context) {
         get() = prefs.getBoolean(KEY_PLAY_LIVE_PHOTOS, true)
         set(value) = prefs.edit { putBoolean(KEY_PLAY_LIVE_PHOTOS, value) }
 
+    /**
+     * Joue les vidéos du dossier (celles qui n'accompagnent aucune photo), sans le son.
+     * Elles sont lues en streaming : rien n'est stocké sur l'appareil, mais chacune
+     * consomme du débit pendant toute sa lecture.
+     */
+    var playVideos: Boolean
+        get() = prefs.getBoolean(KEY_PLAY_VIDEOS, true)
+        set(value) = prefs.edit { putBoolean(KEY_PLAY_VIDEOS, value) }
+
+    /** Durée maximale de lecture d'une vidéo : au-delà, elle s'arrête en fondu. */
+    var maxVideoSeconds: Int
+        get() = prefs.getInt(KEY_MAX_VIDEO, DEFAULT_MAX_VIDEO_S)
+        set(value) = prefs.edit { putInt(KEY_MAX_VIDEO, value.coerceIn(MIN_MAX_VIDEO_S, MAX_MAX_VIDEO_S)) }
+
     var syncIntervalHours: Int
         get() = prefs.getInt(KEY_SYNC_INTERVAL, DEFAULT_SYNC_INTERVAL_H)
         set(value) = prefs.edit { putInt(KEY_SYNC_INTERVAL, value.coerceIn(MIN_SYNC_INTERVAL_H, MAX_SYNC_INTERVAL_H)) }
@@ -98,6 +112,8 @@ class SettingsManager(context: Context) {
         private const val KEY_SHOW_CLOCK = "show_clock"
         private const val KEY_SHOW_PHOTO_INFO = "show_photo_info"
         private const val KEY_PLAY_LIVE_PHOTOS = "play_live_photos"
+        private const val KEY_PLAY_VIDEOS = "play_videos"
+        private const val KEY_MAX_VIDEO = "max_video_s"
         private const val KEY_SYNC_INTERVAL = "sync_interval_h"
         private const val KEY_MAX_CACHE = "max_cache_mb"
 
@@ -105,6 +121,9 @@ class SettingsManager(context: Context) {
         const val DEFAULT_SLIDE_INTERVAL_S = 20
         const val MIN_SLIDE_INTERVAL_S = 5
         const val MAX_SLIDE_INTERVAL_S = 300
+        const val DEFAULT_MAX_VIDEO_S = 60
+        const val MIN_MAX_VIDEO_S = 10
+        const val MAX_MAX_VIDEO_S = 600
         const val DEFAULT_SYNC_INTERVAL_H = 6
         const val MIN_SYNC_INTERVAL_H = 1
         const val MAX_SYNC_INTERVAL_H = 48

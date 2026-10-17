@@ -1,19 +1,28 @@
 package fr.midiland.nextclouddream.ui
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
+import android.net.Uri
+import android.os.SystemClock
 import android.view.Surface
 import android.view.TextureView
 import android.widget.FrameLayout
+import fr.midiland.nextclouddream.photos.VideoStream
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import java.io.File
+import java.io.IOException
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * Lecture du court clip d'une photo animée : une fois, sans son, par-dessus la photo.
@@ -28,6 +37,10 @@ import kotlin.coroutines.resume
  *
  * Le volume est forcé à zéro et **aucun focus audio n'est demandé** : un économiseur
  * d'écran ne doit pas couper la musique que l'utilisateur écoute.
+ *
+ * Sert aussi aux **vidéos seules**, lues en streaming depuis Nextcloud ([openStream],
+ * [startVideo], [awaitVideoEnd], [releaseVideo]). Là, rien n'est local : chaque étape
+ * réseau a un délai maximal, pour qu'un flux bloqué ne fige jamais le diaporama.
  */
 class MotionLayer(context: Context) : TextureView(context) {
 
@@ -102,6 +115,135 @@ class MotionLayer(context: Context) : TextureView(context) {
             runCatching { player?.release() }
         }
     }
+
+    /** Vidéo seule ouverte (flux préparé), prête à démarrer. */
+    class OpenedVideo internal constructor(internal val player: MediaPlayer, val width: Int, val height: Int)
+
+    /** Comment une vidéo seule s'est terminée. */
+    enum class VideoEnd { Completed, Capped, Stalled, Error }
+
+    /**
+     * Ouvre le flux d'une vidéo seule, pendant que la photo courante reste à l'écran.
+     * `prepareAsync` + délai maximal : un `prepare()` bloquant sur le réseau serait
+     * ininterruptible, et la TV mettrait autant de temps à se réveiller.
+     *
+     * @throws Exception si le flux est injoignable, illisible, sans image, ou trop lent.
+     */
+    suspend fun openStream(stream: VideoStream): OpenedVideo {
+        val target = awaitSurface()
+        // Créé hors du thread principal (setDataSource peut toucher au réseau) ; ses
+        // rappels arrivent quand même sur le thread principal, faute de Looper ici
+        val player = withContext(Dispatchers.IO) {
+            MediaPlayer().apply {
+                // En-têtes à part, jamais dans l'URL : MediaPlayer journalise les URL
+                setDataSource(context, Uri.parse(stream.url), stream.headers)
+                setSurface(target)
+                setVolume(0f, 0f)
+                isLooping = false
+            }
+        }
+        try {
+            // withTimeoutOrNull, pas withTimeout : le dépassement de withTimeout est une
+            // CancellationException, qui arrêterait tout le diaporama au lieu de cette vidéo
+            withTimeoutOrNull(PREPARE_TIMEOUT_MS) {
+                suspendCancellableCoroutine<Unit> { cont ->
+                    player.setOnPreparedListener { if (cont.isActive) cont.resume(Unit) }
+                    player.setOnErrorListener { _, what, extra ->
+                        if (cont.isActive) cont.resumeWithException(IOException("MediaPlayer $what/$extra"))
+                        true
+                    }
+                    player.prepareAsync()
+                }
+            } ?: throw IOException("Flux trop long à ouvrir (${PREPARE_TIMEOUT_MS / 1000} s)")
+            if (player.videoWidth <= 0 || player.videoHeight <= 0) error("Vidéo sans piste d'image")
+            Timber.d("Vidéo %s : %dx%d, %d s", stream, player.videoWidth, player.videoHeight, player.duration / 1000)
+            return OpenedVideo(player, player.videoWidth, player.videoHeight)
+        } catch (e: Throwable) {
+            releaseVideo(player)
+            throw e
+        }
+    }
+
+    /**
+     * Démarre la vidéo, cadrée comme une photo (voir [frameVideo]), et rend la main
+     * quand sa première image est posée sur la surface. La vue reste transparente :
+     * c'est à l'appelant de la faire apparaître (fondu enchaîné avec la photo).
+     */
+    suspend fun startVideo(video: OpenedVideo, showWhole: Boolean) {
+        frameVideo(video.width, video.height, showWhole)
+        // withTimeoutOrNull : voir openStream (un dépassement ne doit pas tout arrêter)
+        withTimeoutOrNull(FIRST_FRAME_TIMEOUT_MS) {
+            suspendCancellableCoroutine<Unit> { cont ->
+                video.player.setOnInfoListener { _, what, _ ->
+                    if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START && cont.isActive) cont.resume(Unit)
+                    false
+                }
+                video.player.setOnErrorListener { _, what, extra ->
+                    if (cont.isActive) cont.resumeWithException(IOException("MediaPlayer $what/$extra"))
+                    true
+                }
+                video.player.start()
+            }
+        } ?: throw IOException("Première image trop longue à venir (${FIRST_FRAME_TIMEOUT_MS / 1000} s)")
+    }
+
+    /**
+     * Attend la fin de la vidéo : fin naturelle, erreur, plafond de durée [capMs]
+     * (compté depuis la première image) ou flux bloqué (position immobile pendant
+     * STALL_TIMEOUT_MS, ex. réseau coupé). Au plafond ou au blocage, la vidéo est
+     * mise en pause : sa dernière image reste à l'écran pour le fondu suivant.
+     *
+     * Une vidéo plus courte que [minMs] (la durée d'affichage d'une photo) tourne en
+     * boucle, sans coupure, jusqu'à l'atteindre : elle s'arrête alors à la fin du tour
+     * en cours, jamais au milieu. Le plafond reste prioritaire.
+     */
+    suspend fun awaitVideoEnd(video: OpenedVideo, capMs: Long, minMs: Long): VideoEnd {
+        val player = video.player
+        // Durée inconnue (flux sans index de durée) : pas de boucle
+        val looping = player.duration in 1 until minMs
+        runCatching { player.isLooping = looping }
+        val ended = CompletableDeferred<VideoEnd>()
+        player.setOnCompletionListener { ended.complete(VideoEnd.Completed) }
+        player.setOnErrorListener { _, what, extra ->
+            Timber.w("Vidéo interrompue (erreur %d/%d)", what, extra)
+            ended.complete(VideoEnd.Error)
+            true
+        }
+        val start = SystemClock.elapsedRealtime()
+        var lastPosition = -1
+        var lastMove = start
+        while (true) {
+            withTimeoutOrNull(WATCH_INTERVAL_MS) { ended.await() }?.let { return it }
+            val now = SystemClock.elapsedRealtime()
+            if (now - start >= capMs) return VideoEnd.Capped.also { runCatching { player.pause() } }
+            // Durée d'une photo atteinte : le tour en cours sera le dernier
+            if (looping && now - start >= minMs && player.isLooping) runCatching { player.isLooping = false }
+            val position = runCatching { player.currentPosition }.getOrDefault(lastPosition)
+            if (position != lastPosition) {
+                lastPosition = position
+                lastMove = now
+            } else if (now - lastMove >= STALL_TIMEOUT_MS) {
+                return VideoEnd.Stalled.also { runCatching { player.pause() } }
+            }
+        }
+    }
+
+    /**
+     * Libère le lecteur, hors du thread principal (le flux réseau peut mettre un
+     * moment à se fermer) et **en attendant la fin** : le lecteur suivant ne doit se
+     * connecter à la surface qu'une fois celui-ci détaché. Jamais interrompu.
+     */
+    suspend fun releaseVideo(video: OpenedVideo) = releaseVideo(video.player)
+
+    private suspend fun releaseVideo(player: MediaPlayer) {
+        withContext(NonCancellable + Dispatchers.IO) { runCatching { player.release() } }
+    }
+
+    /** Petite copie de l'image affichée (pour le fond flou d'une vidéo en portrait). */
+    fun grabFrame(video: OpenedVideo): Bitmap? = runCatching {
+        val height = (FRAME_GRAB_WIDTH * video.height / video.width).coerceAtLeast(1)
+        getBitmap(FRAME_GRAB_WIDTH, height)
+    }.getOrNull()
 
     /** Libère la surface (appelé quand l'économiseur se ferme). */
     fun release() {
@@ -195,5 +337,14 @@ class MotionLayer(context: Context) : TextureView(context) {
     private companion object {
         // Court : l'image de départ est la photo elle-même, il n'y a presque rien à masquer
         const val FADE_MS = 300L
+
+        // Vidéos seules, en streaming : au-delà, on renonce et le diaporama continue
+        const val PREPARE_TIMEOUT_MS = 20_000L
+        const val FIRST_FRAME_TIMEOUT_MS = 10_000L
+        const val STALL_TIMEOUT_MS = 15_000L
+        const val WATCH_INTERVAL_MS = 500L
+
+        // Assez pour un fond flou (il est réduit à 48 px de large)
+        const val FRAME_GRAB_WIDTH = 96
     }
 }

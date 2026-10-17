@@ -100,4 +100,30 @@ class PhotoIndexStoreTest {
         indexFile.writeText("""[{"key": tronqué""")
         assertTrue(store.load().isEmpty())
     }
+
+    @Test
+    fun `aller-retour d'une video seule`() {
+        val video = IndexedPhoto(
+            key = "v1",
+            url = "https://cloud.example.com/remote.php/dav/files/bob/anniversaire.mp4",
+            name = "anniversaire.mp4",
+            fileId = 12L,
+            metadata = PhotoMetadata("2021:07:14 12:00:00", 48.8566, 2.3522, "Paris, France"),
+            size = 150_000_000L,
+            motion = MotionRef.None,
+            isVideo = true,
+        )
+        val photo = IndexedPhoto("p1", "https://x/a.jpg", "a.jpg", 1L, metadata = null)
+        store.save(listOf(photo, video))
+        assertEquals(listOf(photo, video), PhotoIndexStore(indexFile).load())
+    }
+
+    @Test
+    fun `champ video absent pour une photo, et ancien index lu comme photos`() {
+        store.save(listOf(IndexedPhoto("p1", "https://x/a.jpg", "a.jpg", 1L, metadata = null)))
+        assertTrue(!indexFile.readText().contains("\"video\""))
+
+        indexFile.writeText("""[{"key":"k1","url":"https://x/a.jpg","name":"a.jpg"}]""")
+        assertTrue(!store.load().single().isVideo)
+    }
 }

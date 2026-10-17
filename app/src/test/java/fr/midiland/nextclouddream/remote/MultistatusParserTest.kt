@@ -159,6 +159,7 @@ class MultistatusParserTest {
 
     @Test
     fun `les videos sont reconnues sans etre prises pour des photos`() {
+        // Rattachées à une photo (Live Photo) ou jouées seules : voir MediaPairingTest
         assertTrue(NextcloudWebDavClient.isVideo("IMG_0707.MOV"))
         assertTrue(NextcloudWebDavClient.isVideo("clip.mp4"))
         assertFalse(NextcloudWebDavClient.isVideo("photo.jpg"))
