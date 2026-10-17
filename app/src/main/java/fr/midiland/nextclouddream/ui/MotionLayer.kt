@@ -110,13 +110,18 @@ class MotionLayer(context: Context) : TextureView(context) {
             Timber.w("Clip illisible : %s (%s)", file.name, e.message)
             return false
         } finally {
+            // Toujours libérer le MediaPlayer pour éviter les fuites, même en cas d'erreur
             animate().cancel()
             alpha = 0f
             runCatching { player?.release() }
         }
     }
 
-    /** Vidéo seule ouverte (flux préparé), prête à démarrer. */
+    /**
+     * Vidéo seule ouverte (flux préparé), prête à démarrer.
+     * **IMPORTANT** : L'appelant DOIT appeler [releaseVideo] une fois la vidéo terminée
+     * (même en cas d'erreur) pour libérer le MediaPlayer et éviter les fuites de ressources.
+     */
     class OpenedVideo internal constructor(internal val player: MediaPlayer, val width: Int, val height: Int)
 
     /** Comment une vidéo seule s'est terminée. */
